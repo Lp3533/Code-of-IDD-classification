@@ -1,0 +1,28 @@
+# 1 Preparation
+```{r}
+library(tibble)
+library(ggplot2)
+library(ggrepel)
+library(tidyverse)
+library('e1071')  
+```
+
+# 2 Analysis
+```{r}
+Count_122_Lumbar_noN_CV <- read_xlsx("/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/Count_122_Lumbar_no_noisy_5.xlsx")
+
+B <- read.table("/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/Cibersortx/AS_BR/BR_AS_sig.txt",
+                header=T,
+                comment.char = "#",sep = "\t",fill=TRUE,na.strings = "",quote="")
+```
+## 1 Immuno
+```{r}
+setwd("/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/Cibersortx/")
+source("Cibersort.R")  #激活function
+
+Ciber_results=CIBERSORT("LM22.txt",
+                        "TPM_122_Lumbar.txt", 
+                        perm=1000, QN=F)   
+
+#perm是循环次数  一般文章循环1000次，QN=TRUE是分析RNA-seq，假如为F则分析芯片数据
+```

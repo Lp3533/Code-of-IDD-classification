@@ -1,0 +1,197 @@
+
+# 1 Preparation
+## 1 Library
+```{r}
+library(CellChat)
+library(tidyverse)
+library(ggalluvial)
+library(Seurat)
+library(SeuratDisk)
+library(patchwork)
+library(NMF)
+```
+
+## 2 BR_AS data read in
+```{r,fig.height=5,fig.width=5.5}
+color2 <- c(rgb(214/256,39/256,40/256),  # Chond1
+            rgb(148/256,103/256,189/256),# Chond2
+            rgb(140/256,86/256,75/256),  # Chond3
+            #rgb(227/256,119/256,194/256),# NC
+            rgb(31/256,119/256,180/256),  # NPPC
+            rgb(255/256,126/256,14/256),  # Stroma
+            rgb(188/256,189/256,34/256), # EC
+            rgb(44/256,160/256,44/256),  # Pericyte
+            rgb(23/256,190/256,207/256), # Blood
+            rgb(197/256,168/256,206/256), # Neutrophils
+            rgb(239/256,132/256,118/256), # GMPs
+            rgb(249/256,219/256,149/256), # Macrophage
+            rgb(140/256,205/256,191/256)  # T cell
+            ) 
+AS_BR <- readRDS("/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/AS_BR/Merge-20231013.rds")
+DimPlot(AS_BR, reduction = "umap",group.by = 'furcluster',
+        cols = color2
+        )
+```
+
+### 1 AS_data
+```{r}
+AS <- subset(AS_BR,(source == "AS"))
+AS@meta.data[["furcluster"]] <- factor(AS@meta.data[["furcluster"]],
+                                       levels = c("Chond1","Chond2","Chond3","NPPC","Stroma","EC","Pericyte",
+                                                  "Blood","Neutrophils","GMPs","Macrophage","T cell"))
+Idents(AS) <- AS@meta.data[["furcluster"]]
+saveRDS(AS,"/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/AS_BR/AS-20240218.rds")
+```
+
+```{r}
+AS <- readRDS("/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/AS_BR/AS-20240218.rds")
+DimPlot(AS, reduction = "umap",group.by = 'furcluster',
+        cols = color2
+        )
+```
+
+# 2 Cellchat Analysis
+## 1 Cellchat Object
+```{r}
+# CellChat要求输入标准化后的表达数据
+data.input <- GetAssayData(AS, assay = "RNA", slot = "data")
+identity <- subset(AS@meta.data, select = "furcluster")
+
+# 创建cellchat对象
+cellchat <- createCellChat(object = data.input)
+cellchat <- addMeta(cellchat, meta = identity, meta.name = "labels")
+cellchat <- setIdent(cellchat, ident.use = "labels") 
+groupSize <- as.numeric(table(cellchat@idents)) # 后面有用
+
+##设置参考数据库
+# 选择合适的物种，可选CellChatDB.human, CellChatDB.mouse
+CellChatDB <- CellChatDB.human
+# 使用"Secreted Signaling"用于细胞通讯分析
+#CellChatDB.use <- subsetDB(CellChatDB, search = "Secreted Signaling")
+   #(不应该只用Secret，应用全部)
+# 将数据库传递给cellchat对象
+cellchat@DB <- CellChatDB
+```
+
+## 2 Ligand-recept analysis
+```{r}
+##配体-受体分析
+# 提取数据库支持的数据子集
+cellchat <- subsetData(cellchat)
+# 识别过表达基因
+cellchat<- identifyOverExpressedGenes(cellchat)
+# 识别配体-受体对
+cellchat<- identifyOverExpressedInteractions(cellchat)
+# 将配体、受体投射到PPI网络
+cellchat <- projectData(cellchat, PPI.human)
+
+##推测细胞通讯网络
+cellchat <- computeCommunProb(cellchat)
+cellchat <- computeCommunProbPathway(cellchat)
+cellchat <- aggregateNet(cellchat)
+```
+
+## 3 Save and read in
+```{r}
+#saveRDS(cellchat, file = '/linp/linp/IDD_classification/Formal Analysis/9 Cellchat/AS/cellchat.rds')
+cellchat <- readRDS('/linp/linp/IDD_classification/Formal Analysis/9 Cellchat/AS_0.01/cellchat_scissor_ASpos.rds')
+groupSize <- as.numeric(table(cellchat@idents)) # 后面有用
+```
+
+# 3 Visualization
+```{r}
+levels(cellchat@idents)            #查看细胞顺序
+vertex.receiver = c(3, 6)          #指定靶细胞的索引
+cellchat@netP$pathways             #查看富集到的信号通路
+```
+
+## 1 Circle plot
+```{r}
+png(filename = "sig_pathway_cricle.png", width = 650, height = 600)
+netVisual_aggregate(cellchat, signaling = cellchat@netP$pathways, 
+                    color.use = color2,
+                    signaling.name='All', 
+                    #sources.use='Osteoclast',
+                    layout = "circle", vertex.weight = groupSize,
+                    show.legend = TRUE)
+dev.off()
+```
+
+```{r}
+pdf("/linp/linp/IDD_classification/Formal Analysis/9 Cellchat/AS_0.01/Figures/Chord_TNF.pdf",
+    width = 6, height = 6)
+netVisual_aggregate(cellchat, signaling = c("TNF"),
+                    color.use = color2,
+                    signaling.name='TNF', 
+                    #sources.use='Osteoclast',
+                    layout = "chord", vertex.weight = groupSize,
+                    show.legend = TRUE)
+dev.off()
+```
+
+
+## 2 输入/输出信号通路总览
+```{r}
+# 受体配体信号的统计
+cellchat <- netAnalysis_computeCentrality(cellchat)
+netAnalysis_signalingRole_scatter(cellchat)
+```
+
+```{r}
+pdf("/linp/linp/IDD_classification/Formal Analysis/9 Cellchat/AS/Figures/Overview.pdf",
+    width = 8, height = 8)
+netAnalysis_signalingRole_heatmap(cellchat, 
+                                  signaling = cellchat@netP$pathways,
+                                  pattern = "all", # all,outgoing,incoming
+                                  color.heatmap = "BuGn",
+                                  title = NULL,
+                                  width = 10,
+                                  height = 15,
+                                  font.size = 8,
+                                  font.size.title = 10) 
+dev.off()
+```
+## 3 通路中各细胞的身份
+```{r}
+cellchat@netP$pathways             #查看富集到的信号通路
+
+cellchat <- netAnalysis_computeCentrality(cellchat)
+netAnalysis_signalingRole_network(cellchat, signaling = "TNF",#cellchat@netP$pathways,#'CALCR', 
+                                  width = 8, height = 2.5, 
+                                  font.size = 10)
+
+for(i in cellchat@netP$pathways){
+  path <- "/linp/linp/IDD_classification/Formal Analysis/9 Cellchat/AS/Figures/Sender_Receiver/"
+  pdf(paste(path,"S-R_",i,".pdf",sep = ""),
+    width = 6, height = 2.5)
+  netAnalysis_signalingRole_network(cellchat, signaling = i, 
+                                  width = 8, height = 2.5, 
+                                  font.size = 10)
+  dev.off()
+}
+```
+
+## 4 Dotplot
+```{r}
+netVisual_bubble(cellchat, 
+                 # sources.use = c("Macrophage"), 
+                 # targets.use = c("NPPC"), 
+                 remove.isolate = FALSE)
+```
+## 5 通路中各种信号分子的互作形式
+```{r}
+netVisual_chord_gene(cellchat,signaling = 'TNF',#targets.use = c('EC1','EC2'),
+                     color.use = color2
+                     )
+netAnalysis_contribution(cellchat, signaling = 'TNF')
+plotGeneExpression(cellchat, signaling = "TNF")
+
+for(i in cellchat@netP$pathways){
+  path <- "/linp/linp/IDD_classification/Formal Analysis/9 Cellchat/AS/Figures/Molecule/"
+  gg <- plotGeneExpression(cellchat, 
+                   color.use = color2,
+                   signaling = i)
+  ggsave(filename=paste(path,"Molecule_",i,".pdf",sep = ""),
+       plot=gg, width = 6, height = 6, units = 'in', dpi = 300)
+}
+```

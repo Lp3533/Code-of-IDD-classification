@@ -1,0 +1,514 @@
+# 1 Data import
+```{r}
+library(dplyr)
+library(Seurat)
+library(patchwork)
+```
+
+## 1 AS data
+```{r}
+AS_data <- Read10X(data.dir = "/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/10x_files_hNP_AS/")
+AS <- CreateSeuratObject(counts = AS_data,min.cells = 3, min.features = 200)
+saveRDS(AS,"/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/10x_files_hNP_AS/Primary_AS.rds")
+```
+
+## 2 BR data
+```{r,fig.height=4,fig.width=5}
+BR_NP <- readRDS("/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/BayesPrism2/BR_seurat_NP.rds")
+#BR_NP <- RunTSNE(BR_NP, dims = 1:5)
+DimPlot(BR_NP, reduction = "tsne",group.by = 'cluster',
+        cols = c(rgb(31/256,119/256,180/256),
+                 rgb(255/256,126/256,14/256),
+                 rgb(44/256,160/256,44/256),
+                 rgb(214/256,39/256,40/256),
+                 rgb(148/256,103/256,189/256),
+                 rgb(140/256,86/256,75/256),
+                 rgb(227/256,119/256,194/256),
+                 rgb(188/256,189/256,34/256),
+                 rgb(23/256,190/256,207/256)),
+        pt.size = 0.1
+        )
+```
+
+## 3 Sample
+```{r}
+library(Seurat)
+library(SeuratData)
+library(patchwork)
+
+InstallData("ifnb")
+LoadData("ifnb")
+
+# split the dataset into a list of two seurat objects (stim and CTRL)
+ifnb.list <- SplitObject(ifnb, split.by = "stim")
+
+# normalize and identify variable features for each dataset independently
+ifnb.list <- lapply(X = ifnb.list, FUN = function(x) {
+    x <- NormalizeData(x)
+    x <- FindVariableFeatures(x, selection.method = "vst", nfeatures = 2000)
+})
+
+# select features that are repeatedly variable across datasets for integration
+features <- SelectIntegrationFeatures(object.list = ifnb.list)
+```
+
+# 2 Preprocess
+## 1 Quality control
+```{r}
+AS <- readRDS("/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/10x_files_hNP_AS/Primary_AS.rds")
+Idents(AS) <- AS@active.assay
+AS[["percent.mt"]] <- PercentageFeatureSet(AS, pattern = "^MT-")
+AS <- subset(AS, subset = nCount_RNA < 20000  & nFeature_RNA > 500 )#& percent.mt < 20
+Idents(BR_NP) <- BR_NP@active.assay
+VlnPlot(BR_NP, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3,pt.size = 0)
+```
+
+## 2 NormalizeData
+```{r}
+#pbmc <- merge(AS,BR_NP)
+
+ifnb.list <- list()
+ifnb.list[[1]] <- AS
+ifnb.list[[2]] <- BR_NP
+
+# normalize and identify variable features for each dataset independently
+ifnb.list <- lapply(X = ifnb.list, FUN = function(x) {
+    x <- NormalizeData(x)
+    x <- FindVariableFeatures(x, selection.method = "vst", nfeatures = 3000)
+})
+
+# select features that are repeatedly variable across datasets for integration
+features <- SelectIntegrationFeatures(object.list = ifnb.list)
+```
+
+# 3 Casting
+```{r}
+Cast.anchors <- FindTransferAnchors(reference = BR_NP, query = AS,
+    dims = 1:30, reference.reduction = "pca")
+predictions <- TransferData(anchorset = Cast.anchors, refdata = BR_NP$cluster,
+    dims = 1:30)
+AS <- AddMetaData(AS, metadata = predictions)
+table(AS$predicted.id)
+```
+
+```{r}
+BR_NP <- RunUMAP(BR_NP, dims = 1:30, reduction = "pca", return.model = TRUE)
+AS <- MapQuery(anchorset = Cast.anchors, reference = BR_NP, query = AS,
+    refdata = list(celltype = "cluster"), reference.reduction = "pca", reduction.model = "umap")
+
+p1 <- DimPlot(BR_NP, reduction = "umap", group.by = "cluster", label = TRUE, label.size = 3,
+    repel = TRUE) + NoLegend() + ggtitle("Reference annotations")
+p2 <- DimPlot(AS, reduction = "ref.umap", group.by = "predicted.celltype", label = TRUE,
+    label.size = 3, repel = TRUE) + NoLegend() + ggtitle("Query transferred labels")
+p1 + p2
+
+AS@meta.data[["cluster"]] <- factor(AS@meta.data[["predicted.id"]],
+                                    levels = c("Chond1","Chond2","Chond3","Noto","NPPC","Stroma","EC","Pericyte","Blood"))
+#saveRDS(AS,"/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/10x_files_hNP_AS/AS_cast-20231011.rds")
+```
+
+# 4 Integrate
+```{r}
+AS$source <- "AS"
+BR_NP$source <- "BR"
+
+ifnb.list <- list()
+ifnb.list[[1]] <- AS
+ifnb.list[[2]] <- BR_NP
+features <- SelectIntegrationFeatures(object.list = ifnb.list)
+
+NP.anchors <- FindIntegrationAnchors(object.list = ifnb.list, anchor.features = features)
+# this command creates an 'integrated' data assay
+NP.combined <- IntegrateData(anchorset = NP.anchors)
+
+library(ggplot2)
+library(cowplot)
+library(patchwork)
+# switch to integrated assay. The variable features of this assay are automatically set during
+# IntegrateData
+DefaultAssay(NP.combined) <- "integrated"
+# Run the standard workflow for visualization and clustering
+NP.combined <- ScaleData(NP.combined, verbose = FALSE)
+NP.combined <- RunPCA(NP.combined, npcs = 30, verbose = FALSE)
+NP.combined <- RunUMAP(NP.combined, reduction = "pca", dims = 1:30, verbose = FALSE)
+p1 <- DimPlot(NP.combined, reduction = "umap", group.by = "source")
+p2 <- DimPlot(NP.combined, reduction = "umap", group.by = "cluster", label = TRUE, repel = TRUE) + 
+    NoLegend()
+p1 + p2
+NP.combined@meta.data[["cluster"]] <- factor(NP.combined@meta.data[["cluster"]],
+                                             levels = c("Chond1","Chond2","Chond3","Noto","NPPC","Stroma","EC","Pericyte","Blood"))
+#saveRDS(NP.combined,"/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/10x_files_hNP_AS/NP.combined-20231008.rds")
+```
+
+```{r}
+AS@meta.data[["sample"]] <- AS@meta.data[["orig.ident"]]
+AS@meta.data[["source"]] <- "AS"
+BR_NP@meta.data[["source"]] <- "BR"
+Data <- merge(AS,BR_NP)
+Data$cluster <- factor(Data$cluster,levels = c("Chond1","Chond2","Chond3","Noto","NPPC","Stroma","EC","Pericyte","Blood"))
+#saveRDS(Data,"/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/10x_files_hNP_AS/Merge-20231011.rds")
+```
+
+```{r}
+saveRDS(Data,"/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/10x_files_hNP_AS/Merge-20231011.rds")
+saveRDS(NP.anchors,"/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/10x_files_hNP_AS/NP.anchors-20231008.rds")
+```
+
+# 5 Polish
+```{r}
+library(harmony)
+library(bbknnR)
+Data <- readRDS("/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/10x_files_hNP_AS/Merge-20231012.rds")
+color <- c(rgb(214/256,39/256,40/256),  # Chond1
+                 rgb(148/256,103/256,189/256),# Chond2
+                 rgb(140/256,86/256,75/256),  # Chond3
+                 rgb(227/256,119/256,194/256),# NC
+           rgb(31/256,119/256,180/256),  # NPPC
+                 rgb(255/256,126/256,14/256),  # Stroma
+                 rgb(188/256,189/256,34/256), # EC
+                 rgb(44/256,160/256,44/256),  # Pericyte
+                 rgb(23/256,190/256,207/256)) # Blood
+
+Data <- FindVariableFeatures(Data, selection.method = "vst", nfeatures = 3000)
+Data <- ScaleData(Data, verbose = FALSE)
+Data <- RunPCA(Data, npcs = 30, verbose = FALSE)
+#Data <- RunHarmony(Data, group.by.vars = 'source')
+
+# pbmc <- pbmc %>% 
+#   RunUMAP(reduction = "harmony", dims = 1:25) %>% 
+#   FindNeighbors(reduction = "harmony", dims = 1:25) 
+```
+
+## 1 BBKNN
+```{r,fig.height=4,fig.width=9}
+
+color <- c(rgb(214/256,39/256,40/256),  # Chond1
+                 rgb(148/256,103/256,189/256),# Chond2
+                 rgb(140/256,86/256,75/256),  # Chond3
+                 rgb(227/256,119/256,194/256),# NC
+           rgb(31/256,119/256,180/256),  # NPPC
+                 rgb(255/256,126/256,14/256),  # Stroma
+                 rgb(188/256,189/256,34/256), # EC
+                 rgb(44/256,160/256,44/256),  # Pericyte
+                 rgb(23/256,190/256,207/256)) # Blood
+#Data <- RunUMAP(Data, reduction = "bbknn", dims = 1:10, verbose = FALSE)
+Data <- RunBBKNN(Data, reduction = "pca",
+                 run_TSNE = T,run_UMAP = F,
+                 n_pcs = 30,neighbors_within_batch =3,
+                 pynndescent_n_neighbors = 30L,
+                 batch_key = "sample")
+
+p1 <- DimPlot(Data, reduction = "tsne", group.by = "source",
+        #cols = color,
+        pt.size = 0.1,
+        label = FALSE, repel = TRUE) + ggtitle("Source") #+ NoLegend()
+p2 <- DimPlot(Data, reduction = "tsne", group.by = "cluster",
+        cols = color,
+        pt.size = 0.1,
+        label = FALSE, repel = TRUE) + ggtitle("BBKNN") #+ NoLegend()
+p1 + p2
+```
+## 2 FastMNN
+```{r}
+BR_NP <- readRDS("/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/BayesPrism2/BR_seurat_NP.rds")
+AS <- readRDS("/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/10x_files_hNP_AS/AS_cast.rds")
+AS@meta.data[["cluster"]] <- factor(AS@meta.data[["predicted.celltype"]],
+                                    levels = c("Chond1","Chond2","Chond3","Noto","NPPC","Stroma","EC","Pericyte","Blood"))
+AS@meta.data[["sample"]] <- AS@meta.data[["orig.ident"]]
+AS@meta.data[["source"]] <- "AS"
+BR_NP@meta.data[["source"]] <- "BR"
+```
+
+```{r,fig.height=4,fig.width=9}
+library(SeuratWrappers)
+scRNAlist <- list()
+scRNAlist[[1]] <- BR_NP
+scRNAlist[[2]] <- AS
+
+scRNA <- RunFastMNN(object.list = scRNAlist)
+scRNA <- RunUMAP(scRNA, reduction = "mnn", dims = 1:30)
+scRNA <- FindNeighbors(scRNA, reduction = "mnn", dims = 1:30)
+
+scRNA@meta.data[["cluster"]] <- factor(scRNA@meta.data[["cluster"]],
+                                       levels = c("Chond1","Chond2","Chond3","Noto","NPPC","Stroma","EC","Pericyte","Blood"))
+
+p1 <- DimPlot(scRNA, group.by = "source", pt.size=0.1)+   
+      ggtitle("Source")
+p2 <- DimPlot(scRNA, group.by="cluster", pt.size=0.1,cols = color)+
+      ggtitle("fastMNN")
+p1+p2
+```
+
+## 3 Harmony
+```{r,fig.height=4,fig.width=9}
+set.seed(1)
+library(harmony)
+color <- c(rgb(214/256,39/256,40/256),  # Chond1
+           rgb(148/256,103/256,189/256),# Chond2
+           rgb(140/256,86/256,75/256),  # Chond3
+           rgb(227/256,119/256,194/256),# NC
+           rgb(31/256,119/256,180/256),  # NPPC
+           rgb(255/256,126/256,14/256),  # Stroma
+           rgb(188/256,189/256,34/256), # EC
+           rgb(44/256,160/256,44/256),  # Pericyte
+           rgb(23/256,190/256,207/256)) # Blood
+
+#Data <- RunHarmony(Data, group.by.vars = 'sample')
+Data <- RunUMAP(Data, reduction = "harmony", 
+                dims = 1:30, spread = 1,
+                verbose = FALSE)
+
+p1 <- DimPlot(Data, reduction = "umap", group.by = "source",
+        #cols = color,
+        pt.size = 0.1,
+        label = FALSE, repel = TRUE) + ggtitle("Source") #+ NoLegend()
+p2 <- DimPlot(Data, reduction = "umap", group.by = "cluster",
+        cols = color,
+        pt.size = 0.1,
+        label = FALSE, repel = TRUE) + ggtitle("Cluster") #+ NoLegend()
+p1 + p2
+# ggsave("/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/AS_BR/1 Merge/UMAP_Merge.pdf",
+#          plot = last_plot(),
+#          device = cairo_pdf,width =15, height =7,dpi = 300)
+#saveRDS(Data,"/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/10x_files_hNP_AS/Merge-20231012.rds")
+```
+
+```{r,fig.height=4,fig.width=7}
+DimPlot(Data, reduction = "umap", group.by = "cluster",
+        cols = color,
+        pt.size = 0.1,
+        split.by = "source",
+        label = FALSE, repel = TRUE) +
+  ggtitle(" ") 
+  #+ NoLegend()
+ggsave("/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/AS_BR/1 Merge/UMAP_Batch.pdf",
+         plot = last_plot(),
+         device = cairo_pdf,width =13, height =7,dpi = 300)
+```
+
+# 6 Subcluster
+## 1 Blood
+```{r}
+Blood <- readRDS("/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/AS_BR/2 Blood/Blood-20231012.rds")
+Idents(Blood) <- Blood@meta.data[["Blood_cluster"]]
+```
+
+### 1 Cluster
+```{r}
+#Blood  <- subset(Data,(cluster == c("Blood")))
+Blood <- Blood %>% 
+  #RunUMAP(reduction = "harmony", dims = 1:25) %>% 
+  FindNeighbors(reduction = "harmony", dims = 1:30) 
+
+seq <- seq(0.1, 1, by = 0.1)
+for(res in seq){
+  Blood <- FindClusters(Blood, resolution = res)
+}
+```
+
+```{r}
+library(clustree)
+library(patchwork)
+p1 <- clustree(Blood, prefix = 'RNA_snn_res.') + coord_flip()
+#p2 <- DimPlot(pbmc, group.by = 'RNA_snn_res.0.3', label = T)
+p3 <- DimPlot(Blood, 
+              group.by = 'RNA_snn_res.0.1', 
+              label = T)
+p1+p3 + plot_layout(widths = c(4, 3))
+ggsave("/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/AS_BR/2 Blood/Cluster_0.1.pdf",
+         plot = last_plot(),
+         device = cairo_pdf,width =23, height =9.5,dpi = 300)
+
+#saveRDS(Blood,"/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/AS_BR/2 Blood/Blood-20231012.rds")
+```
+
+### 2 Feature
+```{r,fig.width=8,fig.height=5}
+Feature <- c("CD163","CD68","TRAC","KLRD1","MS4A3","FCGR3B","HBD","OLR1","ARG1")
+#VlnPlot(pbmc, features = Feature,pt.size = 0,ncol = 2)
+DotPlot(Blood, features = Feature, 
+        #cluster.idents = TRUE,
+        #group.by = 'RNA_snn_res.0.1',
+        cols ="RdYlBu") + RotatedAxis()
+# ggsave("/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/AS_BR/2 Blood/Blood_feature.pdf",
+#          #plot = p,
+#          device = cairo_pdf,width =8, height =4,dpi = 300)
+```
+
+```{r}
+Blood.0.1 <-  FindClusters(Blood, resolution = 0.1 )
+Idents(Blood.0.1) <- Blood.0.1@meta.data[["RNA_snn_res.0.1"]]
+Blood.markers.0.1 <- FindAllMarkers(Blood.0.1, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+Blood.markers.0.1 %>%
+    group_by(cluster) %>%
+    slice_max(n = 2, order_by = avg_log2FC)
+
+openxlsx::write.xlsx(Blood.markers.0.1,
+                      "/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/AS_BR/2 Blood/markers_0.1.xlsx",
+                      overwrite = F)
+#saveRDS(Blood.0.1,'/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/AS_BR/2 Blood/Mix_data.0.1-20231011.rds')
+```
+
+```{r}
+table(Blood@meta.data[["RNA_snn_res.0.1"]],Blood@meta.data[["source"]])
+VlnPlot(Blood,features = c("nCount_RNA","nFeature_RNA"),pt.size = 0,
+        group.by = "RNA_snn_res.0.1")
+```
+
+### 3 Rename
+```{r}
+Blood@meta.data[["Blood_cluster"]] <- Blood@meta.data[["RNA_snn_res.0.1"]]
+Blood@meta.data[["Blood_cluster"]] <- factor(Blood@meta.data[["Blood_cluster"]],
+                                             levels = c(levels(Blood@meta.data[["Blood_cluster"]]),
+                                                        "Macrophage","T cell","GMPs","Neutrophils","Blood"))
+
+Blood@meta.data[["Blood_cluster"]][Blood@meta.data[["Blood_cluster"]] == "0"] <- "Neutrophils"
+Blood@meta.data[["Blood_cluster"]][Blood@meta.data[["Blood_cluster"]] == "1"] <- "T cell"
+Blood@meta.data[["Blood_cluster"]][Blood@meta.data[["Blood_cluster"]] == "2"] <- "Neutrophils"
+Blood@meta.data[["Blood_cluster"]][Blood@meta.data[["Blood_cluster"]] == "3"] <- "GMPs"
+Blood@meta.data[["Blood_cluster"]][Blood@meta.data[["Blood_cluster"]] == "4"] <- "Macrophage"
+Blood@meta.data[["Blood_cluster"]][Blood@meta.data[["Blood_cluster"]] == "5"] <- "Blood"
+Blood@meta.data[["Blood_cluster"]][Blood@meta.data[["Blood_cluster"]] == "6"] <- "T cell"
+Blood@meta.data[["Blood_cluster"]][Blood@meta.data[["Blood_cluster"]] == "7"] <- "Neutrophils"
+```
+
+```{r}
+saveRDS(Blood,"/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/AS_BR/2 Blood/Blood-20240106.rds")
+```
+
+## 2 Stroma
+### 1 Cluster
+```{r}
+Stroma  <- subset(Data,(cluster == c("Stroma")))
+Stroma <- Stroma %>% 
+  #RunUMAP(reduction = "harmony", dims = 1:25) %>% 
+  FindNeighbors(reduction = "harmony", dims = 1:30) 
+
+seq <- seq(0.1, 1, by = 0.1)
+for(res in seq){
+  Stroma <- FindClusters(Stroma, resolution = res)
+}
+```
+
+```{r}
+library(clustree)
+library(patchwork)
+p1 <- clustree(Stroma, prefix = 'RNA_snn_res.') + coord_flip()
+#p2 <- DimPlot(pbmc, group.by = 'RNA_snn_res.0.3', label = T)
+p3 <- DimPlot(Stroma, 
+              group.by = 'RNA_snn_res.0.2', 
+              label = T)
+p1+p3 + plot_layout(widths = c(4, 3))
+ggsave("/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/AS_BR/3 Stroma/Cluster_0.2.pdf",
+         plot = last_plot(),
+         device = cairo_pdf,width =23, height =9.5,dpi = 300)
+
+#saveRDS(Blood,"/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/AS_BR/3 Stroma/Stroma-20231012.rds")
+```
+
+### 2 Feature
+```{r,fig.width=8,fig.height=3}
+Feature <- c("SOX2","NGFR","NPY1R","NPY5R","SEMA3D",
+             "SPP1","RUNX2","SP7","DLX5","SOX9",
+             "FBLN1","COL1A1","COL2A1","ACAN","CEMIP","AKR1C1","MGP","COMP","DNER","MELTF",
+             "FGFBP2","TAGLN","SNORC")
+#VlnPlot(pbmc, features = Feature,pt.size = 0,ncol = 2)
+DotPlot(Stroma, features = Feature, 
+        #cluster.idents = TRUE,
+        group.by = 'RNA_snn_res.0.1',
+        cols ="RdBu") + RotatedAxis()
+```
+
+```{r}
+VlnPlot(Stroma, features = c("CEMIP","AKR1C1","MGP","COMP"),
+        pt.size = 0,ncol = 2,
+        group.by = 'RNA_snn_res.0.1',)
+```
+
+```{r,fig.height=4,fig.width=7}
+DimPlot(Stroma, reduction = "umap", group.by = "RNA_snn_res.0.1",
+        cols = color,
+        pt.size = 0.1,
+        split.by = "source",
+        label = FALSE, repel = TRUE) +
+  ggtitle(" ") 
+  #+ NoLegend()
+ggsave("/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/AS_BR/3 /UMAP_Batch.pdf",
+         plot = last_plot(),
+         device = cairo_pdf,width =13, height =7,dpi = 300)
+```
+
+```{r}
+Stroma.0.1 <-  FindClusters(Stroma, resolution = 0.1)
+Idents(Stroma.0.1) <- Stroma.0.1@meta.data[["RNA_snn_res.0.1"]]
+Stroma.markers.0.1 <- FindAllMarkers(Stroma.0.1, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+Stroma.markers.0.1 %>%
+    group_by(cluster) %>%
+    slice_max(n = 2, order_by = avg_log2FC)
+
+openxlsx::write.xlsx(Stroma.markers.0.1,
+                      "/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/AS_BR/3 Stroma/markers_0.1.xlsx",
+                      overwrite = F)
+#saveRDS(Stroma.0.1,'/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/AS_BR/2 Stroma/Mix_data.0.1-20231011.rds')
+```
+
+
+# 7 Data+Blood
+```{r}
+Data@meta.data[["furcluster"]] <- Data@meta.data[["cluster"]]
+Data@meta.data[["furcluster"]] <- factor(Data@meta.data[["furcluster"]],
+                                      levels = c("Chond1","Chond2","Chond3","Noto","NPPC","Stroma","EC","Pericyte","Blood","Neutrophils","GMPs","Macrophage","T cell"))
+
+Data@meta.data[["furcluster"]][Data@meta.data[["furcluster"]] == "Blood"] <- Blood@meta.data[["Blood_cluster"]]
+```
+
+## 1 Read in
+```{r}
+Data <- readRDS("/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/10x_files_hNP_AS/Merge-20231012-2.rds")
+```
+
+## 2 Visualization
+```{r,fig.height=4,fig.width=9}
+color2 <- c(rgb(214/256,39/256,40/256),  # Chond1
+            rgb(148/256,103/256,189/256),# Chond2
+            rgb(140/256,86/256,75/256),  # Chond3
+            rgb(227/256,119/256,194/256),# NC
+            rgb(31/256,119/256,180/256),  # NPPC
+            rgb(255/256,126/256,14/256),  # Stroma
+            rgb(188/256,189/256,34/256), # EC
+            rgb(44/256,160/256,44/256),  # Pericyte
+            rgb(23/256,190/256,207/256), # Blood
+            rgb(197/256,168/256,206/256), # Neutrophils
+            rgb(239/256,132/256,118/256), # GMPs
+            rgb(249/256,219/256,149/256), # Macrophage
+            rgb(140/256,205/256,191/256)  # T cell
+            ) 
+
+p1 <- DimPlot(Data, reduction = "umap", group.by = "source",
+        #cols = color,
+        pt.size = 0.1,
+        label = FALSE, repel = TRUE) + ggtitle("Source") #+ NoLegend()
+p2 <- DimPlot(Data, reduction = "umap", group.by = "furcluster",
+        cols = color2,
+        pt.size = 0.1,
+        label = FALSE, repel = TRUE) + ggtitle("Cluster") #+ NoLegend()
+p1 + p2
+ggsave("/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/AS_BR/1 Merge/UMAP_Merge_All.pdf",
+         plot = last_plot(),
+         device = cairo_pdf,width =15, height =7,dpi = 300)
+#saveRDS(Data,"/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/10x_files_hNP_AS/Merge-20231012-2.rds")
+#AS <- subset(Data,(source == c("AS")))
+```
+
+```{r,fig.height=4,fig.width=7}
+DimPlot(Data, reduction = "umap", group.by = "furcluster",
+        cols = color2,
+        pt.size = 0.1,
+        split.by = "source",
+        label = FALSE, repel = TRUE) +
+  ggtitle(" ") 
+  #+ NoLegend()
+ggsave("/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/AS_BR/1 Merge/UMAP_Batch_All.pdf",
+         plot = last_plot(),
+         device = cairo_pdf,width =13, height =7,dpi = 300)
+```

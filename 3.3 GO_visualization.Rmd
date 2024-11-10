@@ -1,0 +1,55 @@
+# 1 Bulk data
+```{r}
+library(readxl)
+tpm_122_Lumbar <- read_xlsx("/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/TPM_122_Lumbar.xlsx")
+Genes <- tpm_122_Lumbar$Genes
+L_bk_noB <- tpm_122_Lumbar[,-1]
+rownames(L_bk_noB) <- Genes
+```
+
+```{r}
+library(reshape2)
+ratio <- tibble::rownames_to_column(L_bk_noB) #让列名独立显示出来
+ratio <- melt(ratio) 
+Group <- read_xlsx('/linp/linp/IDD_classification/Formal Analysis/3 Clustering/122Lumbar/New_5/122Lumbar_SC3_CV8000/Group=4.xlsx')
+ratio$group <- rep(Group$cluster,each = 17927) 
+```
+# 2 Visualization
+```{r,fig.width=4,fig.height=3.5}
+library(ggpubr)
+library(ggplot2)
+target.n = c("STAT3")
+paint <- ratio[ratio$rowname == target.n,]
+paint$value <- log10(paint$value+1)
+#box_paint <- box_paint[box_paint$variable != 'L03',]
+ggplot(paint,aes(x=group,y=value,
+                 #color=group,
+                 fill=group))+
+  theme_bw()+#改变绘图主题
+  stat_compare_means(aes(label = ..p.signif..),
+                     comparisons = list(c('1','2'),c('1','3'),c('1','4'),c('2','3'),c('2','4'),c('3','4')
+                     # comparisons = list(c('1','2'),c('1','3'),c('1','4'), c('1','5'),
+                     #                    c('2','3'),c('2','4'),c('2','5'),
+                     #                    c('3','4'),c('3','5'),c('4','5')
+                     #comparisons = list(c('1','2'),c('1','3'),c('2','3')
+                                        ))+#添加检验
+#  geom_signif(comparisons = list(c('1','2'),c('2','3'),c('1','3')))+
+  labs(title = target.n)+
+  #theme_classic()+
+  theme(plot.title = element_text(hjust = 0.5,size=12))+
+  geom_violin()+ #trim=FALSE
+  geom_boxplot(width = 0.1,fill="white")+
+  scale_fill_brewer(palette="Set2")+
+  theme(panel.grid=element_blank())
+  #geom_boxplot()
+```
+
+```{r}
+outpath <- "/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/Figures/DEGs_Violin_plot/"
+ggsave(paste(outpath,'PDF/',target.n,'.pdf',sep = ""),
+         plot = last_plot(),
+         device = cairo_pdf,width =6, height =5,dpi = 300)
+ggsave(paste(outpath,'PNG/',target.n,'.png',sep = ""),
+         plot = last_plot(),
+       width =6, height =5,dpi = 300)
+```

@@ -1,0 +1,97 @@
+# 1 Data Import
+```{r}
+tpm_123_Lumbar <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/TPM_123_Lumbar.xlsx")
+count_123_Lumbar <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/Count_123_Lumbar.xlsx")
+```
+
+```{r}
+tpm_122_Lumbar <- tpm_123_Lumbar[,colnames(tpm_123_Lumbar) != 'L28W']
+count_122_Lumbar <- count_123_Lumbar[,colnames(count_123_Lumbar) != 'L28W']
+
+tpm_122_Lumbar <- tpm_122_Lumbar[rowSums(tpm_122_Lumbar[,-1]) != 0,]
+count_122_Lumbar <- count_122_Lumbar[rowSums(count_122_Lumbar[,-1]) != 0,]
+
+openxlsx::write.xlsx(tpm_122_Lumbar,
+                     "/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/TPM_122_Lumbar.xlsx",
+                     overwrite = F)
+openxlsx::write.xlsx(count_122_Lumbar,
+                     "/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/Count_122_Lumbar.xlsx",
+                     overwrite = F)
+```
+
+```{r}
+tpm_122_Lumbar <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/TPM_122_Lumbar.xlsx")
+count_122_Lumbar <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/Count_122_Lumbar.xlsx")
+```
+
+```{r}
+#tpm_122_Lumbar <- tpm_123_Lumbar[,colnames(tpm_123_Lumbar) != 'L28W']
+more <- tpm_122_Lumbar > 5
+criterion <- c()
+more <- more[,-1]
+more.2 <- rowSums(more)
+for(i in seq(1,nrow(tpm_122_Lumbar))){
+  if(more.2[i] <= 12){
+    criterion <- c(criterion,FALSE)  #即不要该基因
+  } 
+  else{
+    criterion <- c(criterion,TRUE)
+  }
+}
+
+tpm_122_Lumbar_nonoisy <- tpm_122_Lumbar[criterion,]
+
+count_122_Lumbar_nonoisy <- count_122_Lumbar[count_122_Lumbar$Genes %in% tpm_122_Lumbar_nonoisy$Genes,]
+```
+
+```{r}
+openxlsx::write.xlsx(tpm_122_Lumbar_nonoisy,
+                     "/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/TPM_122_Lumbar_no_noisy_5.xlsx",
+                     overwrite = T)
+
+openxlsx::write.xlsx(count_122_Lumbar_nonoisy,
+                     "/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/Count_122_Lumbar_no_noisy_5.xlsx",
+                     overwrite = T)
+```
+
+# 2 HVGs:Coefficient of Variation
+```{r}
+tpm_122_Lumbar_nonoisy <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/TPM_122_Lumbar_no_noisy_5.xlsx")
+```
+
+```{r}
+matrix_noG <- tpm_122_Lumbar_nonoisy[rowSums(tpm_122_Lumbar_nonoisy[,-1]) != 0,]
+
+for(i in seq(1,nrow(matrix_noG))){
+  matrix_noG$CV[i] <- sd(matrix_noG[i,-1])/mean(as.matrix(matrix_noG[i,-1]))
+}
+
+res <- matrix_noG[order(matrix_noG$CV,decreasing = T),]
+```
+
+```{r}
+openxlsx::write.xlsx(res,
+                     "/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/TPM_122_Lumbar_noN_CV_5.xlsx",
+                     overwrite = F)
+```
+
+# 3 HVGs:Standard deviations
+```{r}
+count_120_Lumbar_nonoisy <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/Count_120_Lumbar_no_noisy_0.xlsx")
+```
+
+```{r}
+matrix_noG <- count_120_Lumbar_nonoisy[rowSums(count_120_Lumbar_nonoisy[,-1]) != 0,]
+
+for(i in seq(1,nrow(matrix_noG))){
+  matrix_noG$SD[i] <- sd(matrix_noG[i,-1])
+}
+
+res <- matrix_noG[order(matrix_noG$SD,decreasing = T),]
+```
+
+```{r}
+openxlsx::write.xlsx(res,
+                     "/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/Count_120_Lumbar_noN_SD.xlsx",
+                     overwrite = T)
+```

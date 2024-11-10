@@ -1,0 +1,780 @@
+
+# 1 Import data
+## 1.1 Library
+```{r}
+library(Seurat)
+#library(SeuratData)
+library(SeuratDisk)
+library(readxl)
+library(AnnotationDbi)
+library(org.Hs.eg.db)#基因注释包
+library(clusterProfiler)#富集包
+#setwd("/linp/linp/IDD_classification")
+```
+
+## 1.2 BR data and test
+### All
+```{r, fig.height=4,fig.width=5.5}
+BR_data2 <- readRDS("/linp/linp/BR/seurat_obj_hIVD.rds")
+DimPlot(BR_data2, reduction = "tsne",group.by = 'cluster',
+        cols = c(rgb(31/256,119/256,180/256),
+                 rgb(255/256,126/256,14/256),
+                 rgb(44/256,160/256,44/256),
+                 rgb(214/256,39/256,40/256),
+                 rgb(148/256,103/256,189/256),
+                 rgb(140/256,86/256,75/256),
+                 rgb(227/256,119/256,194/256),
+                 rgb(188/256,189/256,34/256),
+                 rgb(23/256,190/256,207/256))
+        )
+```
+### NP
+```{r,fig.height=4,fig.width=5}
+BR_NP <- readRDS("/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/BayesPrism2/BR_seurat_NP.rds")
+#BR_NP <- RunTSNE(BR_NP, dims = 1:5)
+DimPlot(BR_NP, reduction = "tsne",group.by = 'cluster',
+        cols = c(rgb(31/256,119/256,180/256),
+                 rgb(255/256,126/256,14/256),
+                 rgb(44/256,160/256,44/256),
+                 rgb(214/256,39/256,40/256),
+                 rgb(148/256,103/256,189/256),
+                 rgb(140/256,86/256,75/256),
+                 rgb(227/256,119/256,194/256),
+                 rgb(188/256,189/256,34/256),
+                 rgb(23/256,190/256,207/256)),
+        pt.size = 0.1
+        )
+```
+
+## 1.3 122 Lumbar Samples
+```{r}
+library(openxlsx)
+library(readxl)
+library(pheatmap)
+library(dplyr)
+
+tpm_122_Lumbar <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/TPM_122_Lumbar.xlsx")
+Genes <- tpm_122_Lumbar$Genes
+L_bk_noB <- tpm_122_Lumbar[,-1]
+rownames(L_bk_noB) <- Genes
+
+Bulk_cor = cor(L_bk_noB)
+pheatmap(Bulk_cor,clustering_method = "ward.D2",#border=FALSE,
+         color = colorRampPalette(c("navy", "white", "red"))(50),scale = "row") 
+```
+
+# 2 BayesPrism
+## 2.1 Data format
+```{r}
+library(Rcpp)
+Rcpp::sourceCpp(code='
+#include <Rcpp.h>
+using namespace Rcpp;
+// [[Rcpp::export]]
+IntegerMatrix asMatrix(NumericVector rp,
+                       NumericVector cp,
+                       NumericVector z,
+                       int nrows,
+                       int ncols){
+  int k = z.size() ;
+  IntegerMatrix  mat(nrows, ncols);
+  for (int i = 0; i < k; i++){
+      mat(rp[i],cp[i]) = z[i];
+  }
+  return mat;
+}
+' )
+
+as_matrix <- function(mat){
+  row_pos <- mat@i
+  col_pos <- findInterval(seq(mat@x)-1,mat@p[-1])
+  tmp <- asMatrix(rp = row_pos, cp = col_pos, z = mat@x,
+                  nrows =  mat@Dim[1], ncols = mat@Dim[2])
+  row.names(tmp) <- mat@Dimnames[[1]]
+  colnames(tmp) <- mat@Dimnames[[2]]
+  return(tmp)
+}
+```
+
+```{r, fig.height=4,fig.width=4.5}
+library(BayesPrism)
+BR_data2 <- AS
+sc.dat <- BR_data2[["RNA"]]@counts #%>% as.data.frame()
+sc.dat <- t(sc.dat)
+try1 <- as_matrix(sc.dat) %>% as.data.frame()
+cell.type.labels <- BR_data2@meta.data[["furcluster"]]
+#sort(table(cell.type.labels))
+```
+
+### 2.1.1 Intersection
+```{r}
+Bulk_data$symbol
+colnames(try1)
+same_genes <- intersect(Bulk_data$symbol,colnames(try1))
+bk_same_gene <- L_bk_noB[Bulk_data$gene %in% same_genes,]
+rownames(bk_same_gene) <- same_genes
+
+try2 <- try1[,colnames(try1) %in% same_genes]
+```
+
+### 2.1.2 Genes transfer
+```{r}
+#基因转化为EMSEMBLE IDs
+gene.df.bk <- bitr(rownames(L_bk_noB),fromType="SYMBOL",toType="ENTREZID", 
+                OrgDb = org.Hs.eg.db)
+gene.df.sc <- bitr(colnames(sc.dat),fromType="SYMBOL",toType="ENTREZID", 
+                OrgDb = org.Hs.eg.db)
+gene.df.bk <- gene.df.bk[!duplicated(gene.df.bk$SYMBOL),]
+gene.df.sc <- gene.df.sc[!duplicated(gene.df.sc$SYMBOL),]
+
+# L_bk_noB2 <- L_bk_noB[Bulk_data$gene %in% gene.df.bk$SYMBOL,]
+# rownames(L_bk_noB2) <- gene.df.bk$ENTREZID
+
+# try3 <- try1[,colnames(try1) %in% gene.df.bk$SYMBOL]
+# colnames(try3) <- gene.df.sc$ENTREZID
+```
+### 2.1.3 Sample
+```{r}
+load(file = "sc.dat.RData")
+dim(sc.dat)
+```
+
+
+
+
+## 2.2 Quality control
+```{r} 
+plot.cor.phi (input=try1,
+              input.labels=cell.type.labels,
+              title="cell state correlation",
+              cexRow=0.2, cexCol=0.2,
+              margins=c(2,2))
+```
+
+## 2.3 Sieving abnormal genes
+```{r}
+#查看离群基因
+sc.stat <- plot.scRNA.outlier(
+  input=try1, #make sure the colnames are gene symbol or ENSMEBL ID 
+  cell.type.labels=cell.type.labels,
+  species="hs", #currently only human(hs) and mouse(mm) annotations are supported
+  return.raw=TRUE #return the data used for plotting. 
+  #pdf.prefix="gbm.sc.stat" specify pdf.prefix if need to output to pdf
+)
+
+
+bk.stat <- plot.bulk.outlier(
+  bulk.input=t(L_bk_noB),   #make sure the colnames are gene symbol or ENSMEBL ID 
+    sc.input=try1,            #make sure the colnames are gene symbol or ENSMEBL ID 
+  cell.type.labels=cell.type.labels,
+  species="hs",               #currently only human(hs) and mouse(mm) annotations are supported
+  return.raw=TRUE
+  #pdf.prefix="gbm.bk.stat" specify pdf.prefix if need to output to pdf
+)
+
+#过滤异常基因
+sc.dat.filtered <- cleanup.genes (input=try1,
+                                  input.type="count.matrix",
+                                  species="hs",
+                                  gene.group=c("Rb","Mrp","other_Rb","chrM","MALAT1","chrX","chrY","hb","act"),
+                                  exp.cells=5)
+bk.dat.filtered <- cleanup.genes (input=t(L_bk_noB),
+                                  input.type="count.matrix",
+                                  species="hs",
+                                  gene.group=c("Rb","Mrp","other_Rb","chrM","MALAT1","chrX","chrY","hb","act"),
+                                  exp.cells=5)
+
+#检查不同类型基因表达的一致性
+plot.bulk.vs.sc (sc.input = sc.dat.filtered, #try1,
+                 bulk.input = bk.dat.filtered#t(L_bk_noB)
+                 #pdf.prefix="gbm.bk.vs.sc" #specify pdf.prefix if need to output to pdf
+                 )
+ 
+#选择相关性最高的组别
+sc.dat.filtered.pc <-  select.gene.type (sc.dat.filtered,
+                                         gene.type = "protein_coding")
+
+
+```
+
+## 2.4 Contruct Prism 
+```{r}
+myPrism <- new.prism(
+  reference=sc.dat.filtered.pc, 
+  mixture=bk.dat.filtered, #t(Bulk_data2), #矩阵的方向要转化一下
+  input.type="count.matrix", 
+  cell.type.labels = cell.type.labels, 
+  cell.state.labels = cell.type.labels,
+  key=NULL,# 
+  outlier.cut=0.01,
+  outlier.fraction=0.1,
+)
+```
+
+## 2.5 Running Prism
+```{r}
+bp.res <- run.prism(prism = myPrism, n.cores=50)
+bp.res#结果
+slotNames(bp.res)
+
+save(bp.res, file="/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/BayesPrism_AS_BR/bp.res_122Lum.rdata")
+```
+
+## 2.6 Result
+```{r}
+theta <- get.fraction(bp=bp.res,
+                       which.theta="final",
+                       state.or.type="type")
+head(theta)
+theta2 <- as.data.frame(theta)
+theta2$samples <- rownames(theta2)
+openxlsx::write.xlsx(theta2,
+                     file="/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/BayesPrism_AS_BR/bp.res_122Lum.xlsx",
+                     overwrite = F)
+
+#提取变异系数
+theta.cv <- bp.res@posterior.theta_f@theta.cv
+head(theta.cv)
+```
+
+## 2.7 Visualization
+```{r}
+theta2 <- read_xlsx("/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/BayesPrism_AS_BR/bp.res_122Lum.xlsx")
+sample <- theta2$samples
+theta2<-theta2[,-ncol(theta2)]
+rownames(theta2) <- sample
+
+library(reshape2)
+ratio <- theta2
+ratio <- t(ratio)
+ratio <- as.data.frame(ratio)
+ratio <- tibble::rownames_to_column(ratio)
+ratio <- melt(ratio)
+colourCount = length(ratio$rowname)
+ggplot(ratio) + 
+  geom_bar(aes(x = variable,y = value,fill = rowname),stat = "identity",width = 0.7,size = 0.5,colour = '#222222')+ 
+  theme_classic() +
+  labs(x='Sample',y = 'Ratio')+
+  #coord_flip()+
+  theme(panel.border = element_rect(fill=NA,color="black", size=0.5, linetype="solid"))
+```
+
+# 3 Combined Group
+```{r}
+Group <- read_xlsx('/linp/linp/IDD_classification/Formal Analysis/3 Clustering/122Lumbar/New_5/122Lumbar_SC3_CV8000/Group=4.xlsx')
+ratio$group <- rep(Group$cluster,each = 12)
+ratio <- ratio[order(ratio$group,decreasing = F),]
+ratio$seqence <- factor(ratio$variable,
+                        levels = unique(ratio$variable))
+ratio$rowname <- factor(ratio$rowname,
+                        levels = c("Chond1","Chond2","Chond3","Noto","NPPC","Stroma","EC","Pericyte","Blood","Neutrophils","GMPs","Macrophage","T cell"))
+color <-  c(rgb(214/256,39/256,40/256),  # Chond1
+            rgb(148/256,103/256,189/256),# Chond2
+            rgb(140/256,86/256,75/256),  # Chond3
+            rgb(227/256,119/256,194/256),# NC
+            rgb(31/256,119/256,180/256),  # NPPC
+            rgb(255/256,126/256,14/256),  # Stroma
+            rgb(188/256,189/256,34/256), # EC
+            rgb(44/256,160/256,44/256),  # Pericyte
+            rgb(23/256,190/256,207/256), # Blood
+            rgb(197/256,168/256,206/256), # Neutrophils
+            rgb(239/256,132/256,118/256), # GMPs
+            rgb(249/256,219/256,149/256), # Macrophage
+            rgb(140/256,205/256,191/256)  # T cell
+            ) 
+
+ggplot(ratio) + 
+  geom_bar(aes(x = seqence,y = value,fill = rowname),stat = "identity",width = 0.7,size = 0.5,colour = '#222222')+ 
+   scale_fill_manual(#name='图例', #图例项（或者用scale_fill_discrete)
+                    #labels=c('1-SL','2-SW','3-PL','4-PW'), #图例标签
+                    values=color)+
+  theme_classic() +
+  labs(x='Sample',y = 'Ratio')+
+  #coord_flip()+
+  theme(panel.border = element_rect(fill=NA,color="black", size=0.5, linetype="solid"))+
+  xlab(NULL)+
+  theme(axis.text.x = element_text(angle = 315))
+
+ggsave("/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/BayesPrism_AS_BR/Proportion.pdf",
+       plot = last_plot(),
+       device = cairo_pdf,width =20, height =6,dpi = 300)
+
+# c(
+#                       rgb(214/256,39/256,40/256),  #红
+#                       rgb(148/256,103/256,189/256),#紫
+#                       rgb(140/256,86/256,75/256),  #棕
+#                       rgb(255/256,126/256,14/256), #橙
+#                       rgb(227/256,119/256,194/256),#粉
+#                       rgb(31/256,119/256,180/256), #蓝
+#                       rgb(188/256,189/256,34/256), #青
+#                       rgb(44/256,160/256,44/256),  #绿
+#                       rgb(23/256,190/256,207/256)  #淡蓝
+#                  )
+```
+
+```{r}
+Group <- Group[order(Group$cluster),]
+Group$cluster <- factor(Group$cluster,levels = unique(Group$cluster))
+Group$no<-"g"
+
+back <- ggplot(Group,aes(x=samples,y=no,fill=cluster))+
+              geom_tile(aes(fill = cluster)) + 
+              #coord_flip()+
+              scale_y_discrete(position="right") +
+              theme_minimal()+xlab(NULL) + ylab(NULL) +
+              theme(axis.text.x = element_blank(),axis.text.y = element_blank())+
+              labs(fill = "Group")
+back
+
+p %>% 
+   insert_bottom(back,height=.02)
+```
+
+
+```{r}
+theta2$Group <- Group$cluster
+openxlsx::write.xlsx(theta2,
+                     "/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/BayesPrism_AS_BR/bp.res_122Lum.group.xlsx",
+                     overwrite = F)
+
+openxlsx::write.xlsx(ratio,
+                     "/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/BayesPrism_AS_BR/bp.res_122Lum.ratio.xlsx",
+                     overwrite = F)
+```
+
+## 1 Box diagram
+```{r}
+ratio <- read_xlsx("/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/BayesPrism_AS_BR/bp.res_122Lum.ratio.xlsx")
+```
+
+```{r}
+Cluster.names <- c("Chond1","Chond2","Chond3","Noto","NPPC","Stroma","EC","Pericyte","Blood","Neutrophils","GMPs","Macrophage","T cell")
+box_paint <- ratio[ratio$rowname == "GMPs",]
+ggplot(box_paint,aes(x=group,y=value,color=group))+
+  theme_bw()+#改变绘图主题
+  stat_compare_means(aes(label = ..p.signif..),
+                     comparisons = list(c('1','2'),c('1','3'),c('1','4'),c('2','3'),c('2','4'),c('3','4')))+#添加检验
+  labs(title = "NPPC")+
+  theme(plot.title = element_text(hjust = 0.5,size=12))+
+  geom_boxplot()
+# ggsave("/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/BayesPrism_AS_BR/Proportion.pdf",
+#        plot = last_plot(),
+#        device = cairo_pdf,width =20, height =6,dpi = 300)
+```
+
+```{r}
+# All types
+ggplot(ratio,aes(x=rowname,y=value,color=rowname))+
+  theme_bw()+#改变绘图主题
+  # stat_compare_means(aes(label = ..p.signif..),
+  #                    comparisons = list(c('1','2'),c('2','3'),c('1','3')))+#添加检验
+  labs(title = "All Types")+
+  theme(plot.title = element_text(hjust = 0.5,size=12))+
+  geom_boxplot()
+
+ggsave("/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/BayesPrism_AS_BR/Box_plot/All.pdf",
+       plot = last_plot(),
+       device = cairo_pdf,width =8, height =5,dpi = 300)
+```
+
+### Circulation
+```{r}
+Cluster.names <- c("Chond1","Chond2","Chond3","Noto","NPPC","Stroma","EC","Pericyte","Blood","Neutrophils","GMPs","Macrophage","T cell")
+for(target.n in Cluster.names){
+  paint <- ratio[ratio$rowname == target.n,]
+  ggplot(paint,aes(x=group,y=value,color=group))+
+    theme_bw()+#改变绘图主题
+    stat_compare_means(aes(label = ..p.signif..),
+                     comparisons = list(c('1','2'),c('1','3'),c('1','4'),c('2','3'),c('2','4'),c('3','4')))+#添加检验
+    labs(title = target.n)+
+    theme(plot.title = element_text(hjust = 0.5,size=12))+
+    geom_boxplot()
+
+  outpath <- "/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/BayesPrism_AS_BR/Box_plot/"
+  ggsave(paste(outpath,target.n,'.pdf',sep = ""),
+       plot = last_plot(),
+       device = cairo_pdf,width =5, height =4.5,dpi = 300)
+}
+```
+
+## 2 Violin diagram
+```{r}
+ratio <- read_xlsx("/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/BayesPrism/bp.res_122Lum.ratio.xlsx")
+```
+
+```{r,fig.width=4,fig.height=3}
+Cluster.names <- c("Chond1","Chond2","Chond3","Stroma","Noto","NPPC","EC","Blood","Pericyte")
+target.n = "NPPC"
+  paint <- ratio[ratio$rowname == target.n,]
+  ggplot(paint,aes(x=group,y=value,
+                 #color=group,
+                 fill=group))+
+    theme_bw()+#改变绘图主题
+    stat_compare_means(aes(label = ..p.signif..),
+                     comparisons = list(c('1','2'),c('1','3'),c('1','4'),c('2','3'),c('2','4'),c('3','4')))+#添加检验
+    labs(title = target.n)+
+    #theme_classic()+
+    theme(plot.title = element_text(hjust = 0.5,size=12))+
+    geom_violin()+ #trim=FALSE
+    geom_boxplot(width = 0.05,fill="white")+
+    scale_fill_brewer(palette="Set2")+
+    theme(panel.grid=element_blank())
+
+  # outpath <- "/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/BayesPrism/Cluster/"
+  # ggsave(paste(outpath,target.n,'.pdf',sep = ""),
+  #      plot = last_plot(),
+  #      device = cairo_pdf,width =6, height =5,dpi = 300)
+
+```
+
+```{r}
+# All types
+ratio$rowname <- factor(ratio$rowname,
+                        levels = c("Chond1","Chond2","Chond3","Stroma","Noto","NPPC","EC","Blood","Pericyte"))
+ggplot(ratio,aes(x=rowname,y=value,color=rowname))+
+  theme_bw()+#改变绘图主题
+  # stat_compare_means(aes(label = ..p.signif..),
+  #                    comparisons = list(c('1','2'),c('2','3'),c('1','3')))+#添加检验
+  labs(title = "All Types")+
+  theme(plot.title = element_text(hjust = 0.5,size=12))+
+  geom_boxplot()
+
+ggplot(ratio,aes(x=group,y=value,
+                 #color=group,
+                 fill=rowname))+
+  theme_bw()+#改变绘图主题
+  # stat_compare_means(aes(label = ..p.signif..),
+  #                    comparisons = list(c('1','2'),c('1','3'),c('1','4'),c('2','3'),c('2','4'),c('3','4')))+#添加检验
+  labs(title = "All Types")+
+  #theme_classic()+
+  theme(plot.title = element_text(hjust = 0.5,size=12))+
+  geom_violin()+ #trim=FALSE
+  geom_boxplot(width = 0.1,fill="white")+
+  scale_fill_brewer(palette="Set2")+
+  theme(panel.grid=element_blank())
+# ggsave("/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/BayesPrism/All.pdf",
+#        plot = last_plot(),
+#        device = cairo_pdf,width =20, height =6,dpi = 300)
+```
+
+### Circulation
+```{r,fig.width=4,fig.height=3}
+Cluster.names <- c("Chond1","Chond2","Chond3","Stroma","Noto","NPPC","EC","Blood","Pericyte")
+for(target.n in Cluster.names){
+  paint <- ratio[ratio$rowname == target.n,]
+  ggplot(paint,aes(x=group,y=value,
+                 #color=group,
+                 fill=group))+
+    theme_bw()+#改变绘图主题
+    stat_compare_means(aes(label = ..p.signif..),
+                     comparisons = list(c('1','2'),c('1','3'),c('1','4'),c('2','3'),c('2','4'),c('3','4')))+#添加检验
+    labs(title = target.n)+
+    #theme_classic()+
+    theme(plot.title = element_text(hjust = 0.5,size=12))+
+    geom_violin()+ #trim=FALSE
+    geom_boxplot(width = 0.05,fill="white")+
+    scale_fill_brewer(palette="Set2")+
+    theme(panel.grid=element_blank())
+
+  outpath <- "/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/BayesPrism/Cluster/"
+  ggsave(paste(outpath,target.n,'.pdf',sep = ""),
+       plot = last_plot(),
+       device = cairo_pdf,width =6, height =5,dpi = 300)
+}
+```
+
+# 4 DEGs
+```{r}
+#BayesPrism的差异基因是根据Pearson相关性进行排序获得的
+count_122_Lumbar <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/Count_122_Lumbar.xlsx")
+Genes <- count_122_Lumbar$Genes
+L_bk_noB <- count_122_Lumbar[,-1]
+rownames(L_bk_noB) <- Genes
+
+Group <- read_xlsx('/linp/linp/IDD_classification/Formal Analysis/3 Clustering/122Lumbar/New_5/122Lumbar_SC3_CV8000/Group=4.xlsx')
+
+
+ratio <- read_xlsx("/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/BayesPrism2/bp.res_122Lum.ratio.xlsx")
+
+#which(Genes == "ACAN")
+```
+
+## 1 C1
+```{r}
+C1 <- Group[Group$cluster == 1,]$samples
+C1_count <- count_122_Lumbar[,colnames(count_122_Lumbar) %in% C1]
+C1_ratio <- ratio[(ratio$group == 1)&(ratio$rowname == "Stroma"),]
+
+DEGs <- data.frame(Symbol=c(),Pearson=c())
+for(i in seq(1,nrow(C1_count))){
+  DEGs[i,1] <- Genes[i]
+  cor_matrix <- data.frame(t(C1_count[i,]) , C1_ratio$value)
+  DEGs[i,2] <- cor(cor_matrix[,1],cor_matrix[,2],method = "pearson")
+}
+colnames(DEGs) <- c("Symbol","Pearson")
+DEGs <- DEGs[order(DEGs$Pearson,decreasing = T),]
+
+openxlsx::write.xlsx(DEGs,
+                     "/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/BayesPrism2/Bayes_DEGs/DEGs/C1_Stroma.xlsx",
+                     overwrite = F)
+```
+
+
+## 2 C2
+```{r}
+C2 <- Group[Group$cluster == 2,]$samples
+C2_count <- count_122_Lumbar[,colnames(count_122_Lumbar) %in% C2]
+C2_ratio <- ratio[(ratio$group == 2)&(ratio$rowname == "Stroma"),]
+
+DEGs <- data.frame(Symbol=c(),Pearson=c())
+for(i in seq(1,nrow(C2_count))){
+  DEGs[i,1] <- Genes[i]
+  cor_matrix <- data.frame(t(C2_count[i,]) , C2_ratio$value)
+  DEGs[i,2] <- cor(cor_matrix[,1],cor_matrix[,2],method = "pearson")
+}
+colnames(DEGs) <- c("Symbol","Pearson")
+DEGs <- DEGs[order(DEGs$Pearson,decreasing = T),]
+
+openxlsx::write.xlsx(DEGs,
+                     "/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/BayesPrism2/Bayes_DEGs/DEGs/C2_Stroma.xlsx",
+                     overwrite = F)
+```
+
+
+## 3 C3
+```{r}
+C3 <- Group[Group$cluster == 3,]$samples
+C3_count <- count_122_Lumbar[,colnames(count_122_Lumbar) %in% C3]
+C3_ratio <- ratio[(ratio$group == 3)&(ratio$rowname == "Stroma"),]
+
+DEGs <- data.frame(Symbol=c(),Pearson=c())
+for(i in seq(1,nrow(C3_count))){
+  DEGs[i,1] <- Genes[i]
+  cor_matrix <- data.frame(t(C3_count[i,]) , C3_ratio$value)
+  DEGs[i,2] <- cor(cor_matrix[,1],cor_matrix[,2],method = "pearson")
+}
+colnames(DEGs) <- c("Symbol","Pearson")
+DEGs <- DEGs[order(DEGs$Pearson,decreasing = T),]
+
+openxlsx::write.xlsx(DEGs,
+                     "/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/BayesPrism2/Bayes_DEGs/DEGs/C3_Stroma.xlsx",
+                     overwrite = F)
+```
+
+## 4 GSEA
+### 1 GO
+```{r}
+path <- "/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/BayesPrism2/Bayes_DEGs/DEGs/"
+xlsx <- list.files(path)
+xlsx <- c("C3_Stroma.xlsx")
+```
+
+```{r}
+for(file.name in xlsx){
+  
+  DEGs <- read.xlsx(paste(path,file.name,sep = ""))
+  DEGs <- DEGs[(DEGs$Pearson > 0.5)|(DEGs$Pearson < -0.5),]
+  DEGs <- DEGs[!is.na(DEGs$Symbol),]
+  colnames(DEGs) <- c("SYMBOL","Pearson")
+  diff <- DEGs
+  gene.df <- bitr(diff$SYMBOL,fromType="SYMBOL",toType="ENTREZID",
+                OrgDb = org.Hs.eg.db)
+  gene.df <- gene.df[!duplicated(gene.df$SYMBOL),] #基因去重
+  gene <- DEGs$Pearson
+
+  names(gene) = as.character(gene.df$ENTREZID)
+  gene <- sort(gene,decreasing = T)
+    #TCGA数据框如果没有进行基因注释，那么fromType应该是Ensembl，各种ID之间可以互相转换,toType可以是一个字符串，也可以是一个向  量，看自己需求                     
+  
+  Go_gseresult <- gseGO(geneList = gene, 
+                        'org.Hs.eg.db', 
+                        keyType = "ENTREZID", 
+                        ont="BP", 
+                        nPerm = 1000, 
+                        minGSSize = 10, 
+                        maxGSSize = 1000, 
+                        pvalueCutoff=1)
+# GSEA分析——KEGG
+#   KEGG_gseresult <- gseKEGG(gene, nPerm = 1000, minGSSize = 10, maxGSSize = 1000, pvalueCutoff=1)
+# #GSEA分析——Reactome
+#   Go_Reactomeresult <- gsePathway(gene, nPerm = 1000, minGSSize = 10, maxGSSize = 1000, pvalueCutoff=1)
+
+  result <- as.data.frame(Go_gseresult@result)
+  result <- result[result$pvalue<0.05,]
+  
+  result <- result[order(result$NES,decreasing = TRUE),] #将NES从大到小排序
+  result <- result[order(result$pvalue,decreasing = FALSE),] #将pvalue从小到大排序
+  
+  #result$Description <- rownames(result)
+  err <- try(rownames(result) <- 1:nrow(result), TRUE)
+  if("try-error" %in% class(err)){
+    next
+  }
+  rownames(result) <- 1:nrow(result)
+  result$order=factor(rev(as.integer(rownames(result))),
+                    labels = rev(result$Description))
+
+  outpath <- "/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/BayesPrism2/Bayes_DEGs/GO/GSEA_GO_"
+  
+  openxlsx::write.xlsx(result,
+                      paste(outpath,file.name,sep = ""),
+                      overwrite = F)
+}
+```
+
+
+
+
+### 2 Reactome
+```{r}
+path <- "/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/BayesPrism2/Bayes_DEGs/"
+xlsx <- list.files(path)
+```
+
+```{r}
+for(file.name in xlsx){
+  
+  DEGs <- read.xlsx(paste(path,file.name,sep = ""))
+  DEGs <- DEGs[(DEGs$Pearson > 0.5)|(DEGs$Pearson < -0.5),]
+  DEGs <- DEGs[!is.na(DEGs$Symbol),]
+  colnames(DEGs) <- c("SYMBOL","Pearson")
+  diff <- DEGs
+  gene.df <- bitr(diff$SYMBOL,fromType="SYMBOL",toType="ENTREZID",
+                OrgDb = org.Hs.eg.db)
+  
+  gene <- DEGs$Pearson
+
+  names(gene) = as.character(gene.df$ENTREZID)
+  gene <- sort(gene,decreasing = T)
+    #TCGA数据框如果没有进行基因注释，那么fromType应该是Ensembl，各种ID之间可以互相转换,toType可以是一个字符串，也可以是一个向  量，看自己需求                     
+  
+# #GSEA分析——Reactome
+  Go_Reactomeresult <- gsePathway(gene, nPerm = 1000, minGSSize = 10, maxGSSize = 1000, pvalueCutoff=1)
+
+  result <- as.data.frame(Go_Reactomeresult@result)
+  result <- result[result$pvalue<0.05,]
+  
+  result <- result[order(result$NES,decreasing = TRUE),] #将NES从大到小排序
+  result <- result[order(result$pvalue,decreasing = FALSE),] #将pvalue从小到大排序
+  
+  #result$Description <- rownames(result)
+  err <- try(rownames(result) <- 1:nrow(result), TRUE)
+  if("try-error" %in% class(err)){
+    next
+  }
+  rownames(result) <- 1:nrow(result)
+  result$order=factor(rev(as.integer(rownames(result))),
+                    labels = rev(result$Description))
+
+  outpath <- "/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/BayesPrism2/Bayes_DEGs/Reactome/GSEA_Re_"
+  
+  openxlsx::write.xlsx(result,
+                      paste(outpath,file.name,sep = ""),
+                      overwrite = F)
+}
+```
+
+# 5 Visualization
+## 1 Scatter plot
+```{r}
+part <- "C1_Chond2"
+path <- "/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/BayesPrism2/Bayes_DEGs/DEGs/"
+DEGs <- read.xlsx(paste(path,part,".xlsx",sep = ""))
+
+DEGs <- DEGs[!is.na(DEGs$Pearson),]
+DEGs$Rank <- rownames(DEGs)
+DEGs$Pearson <- as.double(DEGs$Pearson)
+DEGs$Rank <- as.double(DEGs$Rank)
+
+ggplot(data = DEGs, 
+       mapping = aes(x = Rank, y = Pearson, 
+                      colour = Pearson, 
+                     #fill = Pearson
+                     # linetype = HVGs, 
+                     # shape = HVGs, 
+                     )) + 
+  #geom_line()+
+  geom_point(size=0.5)+
+  scale_color_distiller(palette="RdBu")+
+  xlab("Rank") + ylab("Pearson")+labs(title = part)+
+  geom_hline(aes(yintercept=0.0),linetype=3,col="gray")+
+  theme_bw() + #去除背景色
+  theme(plot.title = element_text(hjust = 0.5))+
+  theme(panel.grid =element_blank()) #去除网格线
+
+outpath <- "/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/BayesPrism2/Scatter_plot/"
+ggsave(paste(outpath,part,'_all.pdf',sep = ""),
+         plot = last_plot(),
+         device = cairo_pdf,width =4, height =6,dpi = 300)
+```
+
+```{r}
+G.list <- c("OBSL1","RPL18","COX15","FUNDC1","ITGA5") #C3_Chond3
+  #c("GPX3","PIK3R1","CCND3","ZHX3","SAA1","PROCR","CCN2","FGF14","TGFBR3","CTNNB1","COL5A1") #C2_NPPC
+Label <- DEGs[DEGs$Symbol %in% G.list,]
+ggplot(data = Label, 
+       mapping = aes(x = Rank, y = Pearson, 
+                      colour = Pearson, 
+                     #fill = Pearson
+                     # linetype = HVGs, 
+                     # shape = HVGs, 
+                     )) + 
+  #geom_line()+
+  geom_point(size=1,shape = 21, stroke = 1)+
+  scale_color_distiller(palette="RdBu")+
+  geom_text_repel(
+    aes(label = Symbol),
+    color = "black",
+    Label, #注意的文本变量，直接从作图变量取子集即可
+    size = 4, #注释文本的字体大小
+    box.padding = 1, #字到点的距离
+    point.padding = 0.3, #字到点的距离，点周围的空白宽度
+    min.segment.length = 0.5, #短线段可以省略
+    segment.color = "black", #segment.colour = NA, 不显示线段
+    show.legend = T) +
+  xlab("Rank") + ylab("Pearson")+labs(title = part)+
+  geom_hline(aes(yintercept=0.0),linetype=3,col="gray")+
+  theme_bw() + #去除背景色
+  theme(plot.title = element_text(hjust = 0.5))+
+  theme(panel.grid =element_blank()) #去除网格线
+
+outpath <- "/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/BayesPrism2/Scatter_plot/"
+ggsave(paste(outpath,part,'_feature.pdf',sep = ""),
+         plot = last_plot(),
+         device = cairo_pdf,width =4, height =6,dpi = 300)
+```
+
+## 2 Dotplot
+```{r}
+GO_terms <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/BayesPrism2/Bayes_DEGs/GO_terms.xlsx")
+path <- "/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/BayesPrism2/Bayes_DEGs/GO/"
+```
+
+```{r}
+for(i in ncol(GO_terms)){
+  GO <- read.xlsx(paste(path,"GSEA_GO_",colnames(GO_terms)[i],'.xlsx',sep = ""))
+  Terms <- GO_terms[,i]
+  Terms <- Terms[!is.na(Terms)]
+  paint <- GO[GO$Description %in% Terms,]
+  paint <- paint[order(paint$NES,decreasing = T),]
+  paint$order <- factor(paint$Description,levels = rev(paint$Description))
+
+  ggplot(paint,aes(y=order,x=NES,fill=-log10(pvalue)))+
+        #facet_wrap(Method~.)+
+        #geom_point(aes(size=rate,color=-log10(pvalue)))+# 修改点的大小
+        geom_bar(stat = "identity")+
+        scale_fill_gradient(low = "blue", high =  "red")+ #scale_color_gradient
+        labs(color=expression(color = -log10(pvalue)), 
+            x="Normalized enrichment score",y="Terms",title= colnames(GO_terms)[i])+
+        theme_bw()+
+        theme(panel.grid =element_blank()) + #去除网格线
+        theme(plot.title = element_text(hjust = 0.5,size=12))
+        #theme(axis.line.y = element_blank(), axis.ticks.x = element_blank(), axis.text.x = element_blank()) #去除x轴
+  
+  outpath <- "/linp/linp/IDD_classification/Formal Analysis/6 Deconvolution/BayesPrism2/Bar_plot/"
+  ggsave(paste(outpath,'GO_',colnames(GO_terms)[i],'.pdf',sep = ""),
+         plot = last_plot(),
+         device = cairo_pdf,width =6, height =4,dpi = 300)
+}
+```
+

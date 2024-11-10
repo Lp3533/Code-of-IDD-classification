@@ -1,0 +1,45 @@
+
+```{r}
+library(ggdensity)
+library(ggblanket)
+library(ggsci)
+library(ggplot2)
+library(gghdr)
+```
+# 1 Data
+```{r}
+data <- read_xlsx("/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/GSVA/GSVA_ECM.xlsx")
+# data <- read_xlsx("/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/GSVA/GSVA_go.xlsx")
+Term <- data$terms
+data <- data[,-1]
+rownames(data) <- Term
+library(reshape2)
+ratio <- tibble::rownames_to_column(data) #让列名独立显示出来
+ratio <- melt(ratio) 
+Group <- read_xlsx('/linp/linp/IDD_classification/Formal Analysis/3 Clustering/122Lumbar/New_5/122Lumbar_SC3_CV8000/Group=4.xlsx')
+ratio$group <- rep(Group$cluster,each = nrow(data)) 
+#table(ratio$rowname)
+```
+
+# 2 Visualization
+```{r}
+map_ECM <- t(data) %>% as.data.frame()
+map_ECM$Group <- Group$cluster
+ggplot(map_ECM,aes(x = Collagens, y = Proteoglycans, fill = Group)) +
+  ggdensity::geom_hdr() + 
+  #geom_point(shape = 21) +
+  scale_fill_aaas() +
+  facet_wrap(vars(Group)) +
+  geom_hdr_rug()+
+  theme_bw() #+ theme(panel.grid=element_blank()) # 去除背景及网格线
+# ggsave("/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/Figures/MAPs_ECM.pdf",
+#          plot = last_plot(),
+#          device = cairo_pdf,width =6, height =5,dpi = 300)
+
+ggplot(iris,aes(x = Sepal.Width, y = Sepal.Length, fill = Species)) +
+  ggdensity::geom_hdr() + 
+  geom_point(shape = 21) +
+  scale_fill_aaas() +
+  facet_wrap(vars(Species)) +
+  geom_hdr_rug()
+```

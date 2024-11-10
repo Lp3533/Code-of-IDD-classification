@@ -1,0 +1,243 @@
+
+# 1 Preparation
+## 1.1 Library
+```{r}
+library(tidyverse)
+library(clusterProfiler)
+library(msigdbr)  
+library(GSVA) 
+library(GSEABase)
+library(pheatmap)
+library(limma)
+library(BiocParallel)
+```
+
+## 1.2 New matrix
+```{r}
+tpm_122_Lumbar <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/TPM_122_Lumbar.xlsx")
+Genes <- tpm_122_Lumbar$Genes
+L_bk_noB <- tpm_122_Lumbar[,-1]
+rownames(L_bk_noB) <- Genes
+```
+
+## 1.3 Get list
+```{r}
+##KEGG
+KEGG_df_all <-  msigdbr(species = "Homo sapiens", # Homo sapiens or Mus musculus
+                        category = "C2",          # https://zhuanlan.zhihu.com/p/518145829 中图解，C2：Pathway dataset
+                        subcategory = "CP:KEGG") 
+KEGG_df <- dplyr::select(KEGG_df_all,gs_name,gs_exact_source,gene_symbol)
+KEGG_df$gs_name <- tolower(KEGG_df$gs_name)
+kegg_list <- split(KEGG_df$gene_symbol, KEGG_df$gs_name) ##按照gs_name给gene_symbol分组
+```
+
+```{r}
+##GO
+GO_df_all <- msigdbr(species = "Homo sapiens",
+                     category = "C5")  
+GO_df_all <- GO_df_all[GO_df_all$gs_subcat == 'GO:BP', ]
+GO_df <- dplyr::select(GO_df_all, gs_name, gene_symbol, gs_exact_source, gs_subcat)
+GO_df <- GO_df[GO_df$gs_subcat!="HPO",]
+GO_df$gs_name <- tolower(GO_df$gs_name)
+go_list <- split(GO_df$gene_symbol, GO_df$gs_name) ##按照gs_name给gene_symbol分组
+```
+
+```{r}
+## hallmarker gene set
+HGS_all <- msigdbr(species = "Homo sapiens",
+                     category = "H")
+HGS <- dplyr::select(HGS_all, gs_name, gene_symbol)
+HGS$gs_name <- tolower(HGS$gs_name)
+HGS_list <- split(HGS$gene_symbol, HGS$gs_name) ##按照gs_name给gene_symbol分组
+```
+
+# 2 GSVA
+```{r}
+dat <- as.matrix(log2(L_bk_noB+1))
+
+gsva_mat <- gsva(expr=dat,   
+               gset.idx.list=HGS_list,   # kegg_list, go_list , HGS_list
+               kcdf="Gaussian" ,  #"Gaussian" for logCPM,logRPKM,logTPM, "Poisson" for counts
+               verbose=T, 
+               parallel.sz = parallel::detectCores())#调用所有核
+```
+
+```{r}
+terms <- rownames(gsva_mat)
+data <- data.frame(terms, gsva_mat)
+openxlsx::write.xlsx(data,
+                     "/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/GSVA/GSVA_HGS.xlsx",
+                     overwrite = F)
+```
+
+# 3 Limma: Difference comparison
+```{r}
+part <- "HGS"
+GSVA <- read_xlsx("/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/GSVA/GSVA_HGS.xlsx")
+term <- GSVA$terms
+GSVA <- GSVA[,-1]
+rownames(GSVA) <- term
+
+group <- read_xlsx('/linp/linp/IDD_classification/Formal Analysis/3 Clustering/122Lumbar/New_5/122Lumbar_SC3_CV8000/Group=4.xlsx')
+```
+
+### 1 KEGG
+```{r}
+for(j in seq(1,4)){
+  #---------part 1----------
+  for(i in seq(1,nrow(group))){
+    if(group$cluster[i] == j){
+      group$cluster_DEGs[i] <- 'target'
+    }
+    else{
+      group$cluster_DEGs[i] <- 'rest'
+    }
+  }
+
+  condition <- factor(group$cluster_DEGs, 
+                     levels = unique(group$cluster_DEGs))
+
+  colData <- data.frame(row.names = colnames(GSVA), condition)
+
+  design <- model.matrix(~0+factor(colData$condition))
+  colnames(design)=levels(factor(colData$condition))
+  rownames(design)=colnames(GSVA)
+  
+  #---------part 2----------
+  contrast.matrix<-makeContrasts("target-rest",levels=design)
+  ##step1:对每一个基因进行线性模型构建
+  fit <- lmFit(GSVA,design)
+  ##step2:构建芯片数据的线性模型，计算估计的相关系数和标准差;基于贝叶斯计算T值，F值和log-odds
+  fit2 <- contrasts.fit(fit, contrast.matrix)
+  fit2 <- eBayes(fit2)  
+  ##step3
+  tempOutput = topTable(fit2, coef=1, n=Inf)
+  nrDEG = na.omit(tempOutput)
+  
+  #---------part 3----------
+  nrDEG$SYMBOL = tolower(rownames(nrDEG))
+  C_DEGs <-  nrDEG[(nrDEG$adj.P.Val < 0.05),]
+  
+  outpath <- "/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/GSVA/"
+  openxlsx::write.xlsx(C_DEGs,
+                     paste(outpath,part,'/',part,'_C',j,'.xlsx',sep = ""),
+                     overwrite = F)
+}
+```
+
+# 4 Violin
+```{r}
+Group <- read_xlsx('/linp/linp/IDD_classification/Formal Analysis/3 Clustering/122Lumbar/New_5/122Lumbar_SC3_CV8000/Group=4.xlsx')
+gsva_mat <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/GSVA/GSVA_go.xlsx")
+```
+
+```{r}
+library(reshape2)
+
+target.n = c("gobp_oxygen_transport")
+paint <- gsva_mat[gsva_mat$terms == target.n,][,-1] %>% t() %>% as.data.frame() 
+colnames(paint) <- "value"
+paint$group <- Group$cluster
+
+paint$value <- log10(paint$value+1)
+#box_paint <- box_paint[box_paint$variable != 'L03',]
+ggplot(paint,aes(x=group,y=value,
+                 #color=group,
+                 fill=group))+
+  theme_bw()+#改变绘图主题
+  stat_compare_means(aes(label = ..p.signif..),
+                     comparisons = list(c('1','2'),c('1','3'),c('1','4'),c('2','3'),c('2','4'),c('3','4')
+                     # comparisons = list(c('1','2'),c('1','3'),c('1','4'), c('1','5'),
+                     #                    c('2','3'),c('2','4'),c('2','5'),
+                     #                    c('3','4'),c('3','5'),c('4','5')
+                     #comparisons = list(c('1','2'),c('1','3'),c('2','3')
+                                        ))+#添加检验
+#  geom_signif(comparisons = list(c('1','2'),c('2','3'),c('1','3')))+
+  labs(title = target.n)+
+  #theme_classic()+
+  theme(plot.title = element_text(hjust = 0.5,size=12))+
+  geom_violin()+ #trim=FALSE
+  geom_boxplot(width = 0.1,fill="white")+
+  scale_fill_brewer(palette="Set2")+
+  theme(panel.grid=element_blank())
+```
+
+```{r}
+outpath <- "/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/Figures/GSVA_Violin_plot/"
+ggsave(paste(outpath,target.n,'.pdf',sep = ""),
+         plot = last_plot(),
+         device = cairo_pdf,width =6, height =5,dpi = 300)
+```
+
+# 5 Heatmap
+## 1 Mean expression matrix
+```{r}
+group <- read_xlsx('/linp/linp/IDD_classification/Formal Analysis/3 Clustering/122Lumbar/New_5/122Lumbar_SC3_CV8000/Group=4.xlsx')
+Data <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/GSVA/GSVA_kegg.xlsx")
+
+G1.sam <- group[group$cluster == 1,]$samples
+G2.sam <- group[group$cluster == 2,]$samples
+G3.sam <- group[group$cluster == 3,]$samples
+G4.sam <- group[group$cluster == 4,]$samples
+
+G1.matrix <- Data[ , colnames(Data) %in% G1.sam]
+rownames(G1.matrix) <- Data$terms
+G2.matrix <- Data[ , colnames(Data) %in% G2.sam]
+rownames(G2.matrix) <- Data$terms
+G3.matrix <- Data[ , colnames(Data) %in% G3.sam]
+rownames(G3.matrix) <- Data$terms
+G4.matrix <- Data[ , colnames(Data) %in% G4.sam]
+rownames(G4.matrix) <- Data$terms
+
+Mean.Matrix <- data.frame(rowMeans(G1.matrix),rowMeans(G2.matrix),rowMeans(G3.matrix),rowMeans(G4.matrix))
+colnames(Mean.Matrix) <- c("C1","C2","C3","C4")
+```
+
+## 2 Save data
+```{r}
+Mean.Matrix$Symbol <- rownames(Mean.Matrix)
+openxlsx::write.xlsx(Mean.Matrix,
+                     "/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/GSVA/KEGG_Mean_Matrix.xlsx")
+```
+
+## 3 Picture
+```{r}
+Mean.Matrix <- read_xlsx("/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/GSVA/KEGG_Mean_Matrix.xlsx")
+```
+
+```{r}
+gene_list <- c("kegg_glycosylphosphatidylinositol_gpi_anchor_biosynthesis",
+               "kegg_glycosaminoglycan_biosynthesis_keratan_sulfate",
+               "kegg_glycosaminoglycan_biosynthesis_heparan_sulfate",
+               "kegg_protein_export",
+               "kegg_glycosaminoglycan_biosynthesis_chondroitin_sulfate",
+               "kegg_circadian_rhythm_mammal",
+               "kegg_tgf_beta_signaling_pathway",
+               "kegg_wnt_signaling_pathway",
+               "kegg_ribosome",
+               "kegg_oxidative_phosphorylation",
+               "kegg_glutathione_metabolism",
+               "kegg_dna_replication",
+               "kegg_cell_cycle",
+               "kegg_fc_gamma_r_mediated_phagocytosis",
+               "kegg_leukocyte_transendothelial_migration")
+
+heat.matrix <- Mean.Matrix[Mean.Matrix$Symbol %in% gene_list,]
+
+# 排序
+heat.matrix$Symbol <- factor(heat.matrix$Symbol,levels = gene_list)
+heat.matrix <- heat.matrix[order(heat.matrix$Symbol),]
+
+Genes <- heat.matrix$Symbol
+heat.matrix <- heat.matrix[,-ncol(Mean.Matrix)]
+rownames(heat.matrix) <- Genes
+
+pheatmap::pheatmap(heat.matrix,scale = 'row',
+                   cluster_col = F, cluster_rows = F,
+                   show_rownames=T,angle_col = 0, main=' ',
+                   color=colorRampPalette (rev (brewer.pal (n = 7, name ="RdBu")))(100),
+                   cellwidth = 20, cellheight = 20, fontsize = 8, 
+                   filename = "/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/Figures/Heatmap_KEGG.pdf")
+```
+
+

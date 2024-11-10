@@ -1,0 +1,379 @@
+
+# 1 Prepararion
+## 1.1 Library
+```{r}
+library(factoextra)
+library(cluster)
+```
+
+## 1.2 Bulk data
+```{r}
+library(openxlsx)
+library(readxl)
+
+Bulk_data = read_xlsx("/linp/linp/IDD_classification/Samples_matrix/105samples.xlsx")
+genes <- Bulk_data$Genes
+```
+
+### 1.2.1 Lumbar data
+```{r}
+L_bk <- Bulk_data[,26:ncol(Bulk_data)]
+#rownames(L_bk) <- genes
+#Exclude 12 blood contaminated samples:
+L_pollu <- c('L02A','L02B','L04','L11','L45','L49','L57','L59','L68A','L68B','L73B','L77') 
+L_bk_noB <- L_bk[,!(colnames(L_bk) %in% L_pollu)]
+L_bk_noB <- L_bk_noB[,colnames(L_bk_noB) != 'L28W']
+
+#Exclude 0 expressed genes
+L_bk_noB[is.na(L_bk_noB)] <- 0
+L_bk_noB2 <- L_bk_noB 
+L_bk_noB$gene <- genes
+L_bk_noB <- L_bk_noB[rowSums(L_bk_noB2) != 0,]
+
+genes2 <-  L_bk_noB$gene
+L_bk_noB <- L_bk_noB[,-ncol(L_bk_noB)]
+rownames(L_bk_noB) <- genes2
+```
+
+```{r}
+cal <- c()
+for (i in seq(1,nrow(L_bk_noB))) {
+  if (rownames(L_bk_noB)[i] %in% HVGs){
+    cal <- c(cal,i)
+  }
+}
+
+L_bk_noB$gene <- genes2
+L_bk_HVGs <- L_bk_noB[cal,]
+genes3 <- L_bk_HVGs$gene
+L_bk_HVGs <- L_bk_HVGs[,-ncol(L_bk_HVGs)]
+rownames(L_bk_HVGs) <- genes3
+
+table(rowSums(L_bk_HVGs) == 0)
+```
+
+```{r}
+n_scale <- scale(L_bk_HVGs)
+n_scale[is.na(L_bk_HVGs)] <- 0
+
+# Transpose
+L_bk_HVGs_t <- t(L_bk_HVGs)
+t_scale <- scale(L_bk_HVGs_t)
+t_scale[is.na(t_scale)] <- 0
+```
+
+## 1.3 Correlation
+```{r}
+library(factoextra)
+clust_dist <- get_dist(
+  t_scale,
+  stand = FALSE,#标准化
+  method ="spearman")
+#"euclidean","maximum","manhattan","canberra","binary","minkowski","pearson","spearman”or"kendall"
+
+fviz_dist(clust_dist)
+```
+
+# 2 K-means
+## 2.1 Decide 'K' value
+### 2.1.1 聚类数量 vs. 总体平方和
+```{r,fig.height=3,fig.width=4}
+fviz_nbclust(t_scale, FUNcluster = kmeans, method = "wss",k.max = 10)
+# k = 21 or 23
+# k.max 参数是限制最多考虑的集群数量。
+# 该处计算的结果帮助选择合适的k。在“肘部”或“拐点”处的k较佳，即平衡最小的k值与最低的总体平方和
+```
+
+### 2.1.2 聚类数量 vs. 差距统计
+```{r, fig.height=3,fig.width=5}
+#calculate gap statistic based on number of clusters
+gap_stat <- clusGap(t_scale,
+                    FUN = kmeans,
+                    nstart = 25,
+                    K.max = 10,
+                    #B = 50
+                    )
+
+#plot number of clusters vs. gap statistic
+fviz_gap_stat(gap_stat)
+# 选择差距统计最大的那一组
+```
+
+## 2.2 Major analysis
+```{r}
+# 设置随机种子，让结果可以重现
+set.seed(1)
+km <- kmeans(t_scale, centers = 4, nstart = 25)
+#aggregate(USArrests, by=list(cluster=km$cluster), mean)  #计算每个群体中的均值
+km$cluster
+```
+
+### 2.2.1 Data saving
+```{r}
+dat <- as.data.frame(km$cluster)
+dat$samples <- rownames(dat)
+colnames(dat) <-c('cluster','samples')
+openxlsx::write.xlsx(dat,'/linp/linp/IDD_classification/105Samples/Group/kmean_4_Group.xlsx')
+```
+
+## 2.3 Visualization
+```{r}
+#plot results of final k-means model
+a <- t(as.data.frame(km$centers))
+#t_scale[ , which(apply(t_scale, 2, var) != 0)] #解决PCA计算中出现的无穷的情况
+fviz_cluster(km, data = t_scale[ , which(apply(t_scale, 2, var) != 0)],
+             #frame.type = "t"  #调整簇的形状。
+             )  #该算法是展示PCA降维。
+```
+
+# 3 Hierarchical clustering
+## 3.1 Library
+```{r}
+library(tidyverse)
+library(FactoMineR)
+library(factoextra)
+library(cluster)
+```
+
+## 3.2 Analysis
+```{r}
+produc_hc <- t_scale%>%
+#  scale() %>%                    
+  dist(method = "euclidean") %>%  #计算欧式距离
+  #"euclidean", "maximum", "manhattan", "canberra", "binary", "minkowski", "pearson", "spearman" or "kendall".
+  hclust(method = "ward.D")  
+  # "ward.D", "ward.D2", "single", "complete", "average" (= UPGMA), "mcquitty" (= WPGMA), "median" (= WPGMC) or "centroid" (= UPGMC).
+
+coefHier(produc_hc) #计算聚类效果，数值约接近1，效果越好
+cutree(produc_hc,k=4) #将数据分割，和原始样本匹配，直接获得分类结果。
+
+cor(dist(t_scale,method = "euclidean"), 
+    cophenetic(produc_hc)
+    )
+```
+
+## 3.3 Visualization
+```{r,fig.height=3, fig.width=4}
+library(dendextend)
+# Analysis中已经将树状图的数据算好，这里只是根据聚类的数目来画框框，确定具体的聚类方式。
+tree <- as.dendrogram(produc_hc) %>%
+  color_branches(k=5)%>%
+  plot()
+
+fviz_dend(produc_hc,   #基于ggplot，可以使用相关的函数
+          k = 4,       #分类
+          cex = 0.5,   #更改字符大小
+          lwd = 0.3,   #更改线宽
+          #k_colors = c("#2E9FDF", "#E7B800"),
+          color_labels_by_k = TRUE, #文本标签随主体颜色改变
+          rect = TRUE,              #添加虚线方框
+          lower_rect = 0,           #调整方框下缘位置
+          # rect_fill = TRUE,        #方框是否填充颜色
+          # rect_border = c("#2E9FDF", "#E7B800"),      #方框填充的具体颜色
+          horiz = F,          #更改方向
+          #type = "circular",  #更改图形形式
+          )+
+  labs(title = "68 Samples Cluster Dendrogram")+ 
+  theme(plot.title = element_text(size=12,hjust=0.5))  #标题居中
+
+```
+
+# 4 Assessment and verification
+## 4.1 Hopkins statistic
+```{r, fig.height=3, fig.width=4}
+gradient.color <- list(low = "blue",  high = "red")
+
+t_scale%>%   
+  #scale() %>%      
+  get_clust_tendency(n = 3,
+                     graph = FALSE,
+                     gradient = gradient.color)
+a=0.5
+for(i in seq(2,15)){
+  b <- get_clust_tendency(t_scale,n = i,graph = FALSE)$hopkins_stat
+  if(b > a){
+    a <- b
+    c <- i
+  }
+}
+#霍普金斯统计量(hopkins_stat)是一种空间统计量，用于检验空间分布的变量的空间随机性，从而判断数据是否可以聚类。如果Hopkins统计量的值接近1（远高于0.5），那么可以得出数据集是显著可聚类的结论。
+```
+
+## 4.2 Best number of cluster
+```{r}
+library(NbClust)
+produc_nbclust <- t_scale%>%
+  #scale() %>%
+  NbClust(distance = "euclidean",
+          min.nc = 2, max.nc = 7, 
+          method = "complete", index ="alllong") 
+
+#NbClust包提供了30种确定最佳聚类个数的指标，并根据不同的结果给出最佳聚类方案。也就是说，它不仅给出了聚类的数目，也可以执行具体的聚类
+
+# 运算时间太长，PASS。
+# 确认具体的分类类别还是见2.1。
+```
+
+## 4.3 Verification
+### 4.3.1 Silhouette coefficient
+```{r}
+produc_hc1 <- t_scale%>%
+  #scale() %>%
+    eclust("hclust", k = 4, graph = FALSE) #"kmeans" or "hclust" 层级聚类
+
+# sil = silhouette(kmeans(t_scale, centers = 4, nstart = 25)$cluster, 
+#                  dist(t_scale))
+###轮廓图
+fviz_silhouette(produc_hc1,ggtheme = theme_minimal())
+
+#轮廓图(silhouette plot): 这个图形是根据“轮廓值”s(i)来绘制的。对于已经完成的聚类，第i个观测的轮廓值s(i)接近1，说明这个点更倾向于当前分类；s(i)接近0，表示点i介于某两类之间；s(i)接近-1，说明点i更接近其他的类。
+
+## 寻找离群值
+produc_hc1$silinfo$widths[, 1:3]
+sil <- produc_hc1$silinfo$widths[, 1:3]
+neg_sil_index <- which(sil[, 'sil_width'] < 0)
+sil[neg_sil_index, , drop = FALSE]
+```
+
+#### 4.3.1.1 SC Circulaion
+```{r}
+sc = c()
+k = 0 
+for(i in seq(2,6)){
+  produc_hc1 <- t_scale%>%
+  #scale() %>%
+    eclust("hclust", k = i, graph = FALSE)
+  
+  sil <- produc_hc1$silinfo$widths[, 1:3]
+  neg_sil_index <- which(sil[, 'sil_width'] < 0)
+  sc <- c(sc,length(neg_sil_index))
+}
+```
+
+### 4.3.2 DBI/Davies-Bouldin:戴维森堡丁指数
+```{r}
+calDBI <- function(x=data,labels=labesls)
+  ##data必须行为样本，列为特征
+{
+  clusters_n <- length(unique(labels))
+  cluster_k <- list()
+  for (i in c(1:clusters_n)) {
+    cluster_k[[i]] <- x[which(labels==i),]
+  }
+  
+  centroids <- list()
+  for (i in c(1:clusters_n)) {
+    centroids[[i]] <- apply(cluster_k[[i]],2,mean)
+  }
+  
+  s <- list()
+  for (i in c(1:clusters_n)) {
+    a <- c()
+    for (j in c(1:nrow(cluster_k[[i]]))) {
+      b <- dist(rbind(cluster_k[[i]][j,],centroids[[i]]),method = "euclidean")
+      a <- c(a,b)
+    }
+    s[[i]] <- mean(a)
+  }
+  
+  Ri <- list()
+  for (i in c(1:clusters_n)){
+    r <- c()
+    for (j in c(1:clusters_n)){
+      if (j!=i){
+        h <- (s[[i]]+s[[j]])/dist(rbind(centroids[[i]],centroids[[j]]),method = "euclidean")
+        r <- c(r,h)
+      }
+    }
+    Ri[[i]] <- max(r)
+  }
+  dbi <- mean(unlist(Ri))
+  return(dbi)
+}
+#sample
+dbi <- calDBI(t_sc,labels)#x为样本——特征矩阵（行为样本，列为特征），labels为聚类结果
+dbi <- calDBI(t_scale,
+              cutree(produc_hc,k=4))
+
+# kmeans(t_scale, centers = 5, nstart = 25)$cluster
+# cutree(produc_hc,k=5)
+
+#任意两类别的类内样本到类中心平均距离之和除以两类中心点之间的距离，取最大值。DBI越小意味着类内距离越小，同时类间距离越大。
+```
+#### 4.3.2.1 BDI Circulation
+```{r}
+no = c()
+dbi <- c()
+for(i in seq(2,6)){
+  dbi <- c(dbi,
+           calDBI(t_scale,
+              cutree(produc_hc,k=i)
+            ))
+  no <- c(no,i)
+}
+```
+
+### 4.3.3 CH:Calinski-Harabaz
+```{r}
+calCH <- function(X,labels){ 
+  ##X必须行为样本，列为特征
+labels_n <- length(unique(labels))
+samples_n <- nrow(X)
+X_mean <- apply(X,2,mean)
+ex_disp <- c()
+in_disp <- c()
+for (i in c(1:labels_n)) {
+ cluster_k <- X[which(labels==i),]
+ mean_k <- apply(cluster_k,2,mean)
+ a1 <- nrow(cluster_k)*sum((mean_k-X_mean)^2)
+ ex_disp <- c(ex_disp,a1)
+ a2 <- sum((t(t(cluster_k)-mean_k))^2)
+ in_disp <- c(in_disp,a2)
+}
+k1<- sum(ex_disp)
+k2<- sum(in_disp)
+if(k2==0)
+{
+  return(1)
+}
+else
+{
+  return((k1*(samples_n-labels_n))/(k2*(labels_n-1)))
+}
+}
+#sample
+ch<- calCH(X,labels)#X为样本——特征矩阵（行为样本，列为特征），labels为聚类结果
+ch<- calCH(t_scale,
+           cutree(produc_hc,k=4))
+
+#CH越大代表着类自身越紧密，类与类之间越分散。
+```
+
+#### 4.3.3.1 CH Circulation
+```{r}
+no = c()
+ch <- c()
+for(i in seq(2,6)){
+  ch <- c(ch,
+           calCH(t_scale,
+           cutree(produc_hc,k=i)
+           )
+            )
+  no <- c(no,i)
+}
+```
+
+### 4.3.4 Visualization
+```{r}
+Ver_plot <- data.frame(sc,dbi,ch,no)
+a <- c(Ver_plot$sc,Ver_plot$dbi,Ver_plot$ch)
+type <- c(rep('cs',5),rep('dbi',5),rep('ch',5))
+no2 <- c(rep(no,3))
+Ver_plot2 <- data.frame(a,type,no2)
+ggplot(data = Ver_plot2, 
+       mapping = aes(x = no2, y = a, colour = type, linetype = type, shape = type, fill = type)) + 
+  geom_line()+geom_point()+ 
+  xlab("Number of clusters") + ylab("Value")+
+  theme_bw() + #去除背景色
+  theme(panel.grid =element_blank()) #去除网格线
+```

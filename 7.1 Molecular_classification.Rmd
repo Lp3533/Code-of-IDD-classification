@@ -1,0 +1,681 @@
+
+# 1 Preparation
+## 1 Library
+```{r}
+library(randomForest)
+library(pROC) #绘制ROC曲线
+library(ggplot2)
+```
+
+## 2 Data
+```{r}
+library(openxlsx)
+library(readxl)
+library(pheatmap)
+library(dplyr)
+library(magrittr)
+
+tpm_122_Lumbar <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/TPM_122_Lumbar_no_noisy_5.xlsx")
+#tpm_122_Lumbar <- tpm_122_Lumbar[!tpm_122_Lumbar$Genes %in% c("MSANTD3-TMEFF1","RBM14-RBM4"),]
+Genes <- tpm_122_Lumbar$Genes
+L_bk_noB <- tpm_122_Lumbar[,-1]
+rownames(L_bk_noB) <- Genes
+```
+
+```{r}
+bk_t <- L_bk_noB %>% t() %>% as.data.frame()
+
+# genelist <- c("MMP9","C1QTNF6") #"ADAMTS5","FOXO1","DLX6","THBS1"
+# bk_t <- bk_t[,colnames(bk_t) %in% genelist]
+
+group <- read_xlsx('/linp/linp/IDD_classification/Formal Analysis/3 Clustering/122Lumbar/New_5/122Lumbar_SC3_CV8000/Group=4.xlsx')
+bk_t$group <- group$cluster
+# bk_t[bk_t$group != 4,]$group <- "rest"
+# bk_t[bk_t$group == 4,]$group <- "target"
+```
+
+```{r}
+target.no <- nrow(bk_t[bk_t$group == "target",])
+rest.no <- nrow(bk_t[bk_t$group == "rest",])
+
+train_data = rbind(bk_t[bk_t$group == "rest",][1:as.integer(rest.no*0.4),],
+                   bk_t[bk_t$group == "target",][1:as.integer(target.no*0.4),])
+test_data = rbind(bk_t[bk_t$group == "rest",][1:(rest.no-as.integer(rest.no*0.4)),],
+                  bk_t[bk_t$group == "target",][1:(target.no-as.integer(target.no*0.4)),])
+```
+
+```{r}
+trainlist<-sample(nrow(bk_t),7/10*nrow(bk_t))#将数据集划分为7：3
+train_data<-bk_t[trainlist,]
+test_data<-bk_t[-trainlist,]
+```
+
+# 2 Data preprocessing
+```{r}
+# Data <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Random_Forest/Importance.xlsx")
+# Data <- Data[order(Data$MeanDecreaseAccuracy,decreasing = T),]
+# Feature <- Data[Data$MeanDecreaseAccuracy>1.5,]$SYMBOL
+Feature <- colnames(bk_t)
+Feature <- na.omit(Feature)
+if("(Intercept)" %in% Feature){
+  Feature <- Feature[-1]
+}
+Str <- paste("group~",Feature[1],sep = "")
+for(i in seq (2,length(Feature)-1)){
+  Str <- paste(Str,"+",Feature[i],sep = "")
+}
+```
+
+```{r}
+set.seed(1234)
+train_data$group = as.factor(train_data$group)
+test_data$group = as.factor(test_data$group)
+wine_randomforest <- randomForest(group~. ,
+                                  data = train_data,
+                                  #x = train_data,
+                                  ntree =500,
+                                  mtry=3,
+                                  importance=TRUE ,
+                                  proximity=TRUE)
+wine_randomforest$importance
+plot(wine_randomforest)
+```
+
+
+```{r}
+A <- varImpPlot(wine_randomforest, main = "variable importance")
+```
+
+```{r}
+A <- as.data.frame(A)
+A$SYMBOL <- rownames(A)
+write.xlsx(A,
+           "/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Random_Forest/Importance.xlsx",
+           overwrite = F)
+```
+
+# 3 Find specific genes
+## 1 Gene
+```{r}
+#importance_otu <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Random_Forest/RF_CV_DEGs/Importance.xlsx")
+Gene <- c(C1,C2,C3,C4)
+#Gene <- importance_otu$SYMBOL[1:165]
+#Gene <- Genes
+Gene <- unique(Gene)
+Gene <- Gene[-grep('-',Gene)]
+```
+
+## 2 Data
+```{r}
+tpm_122_Lumbar <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/TPM_122_Lumbar_no_noisy_5.xlsx") # _no_noisy_5
+tpm_122_Lumbar <- tpm_122_Lumbar[tpm_122_Lumbar$Genes %in% Gene,]
+Genes <- tpm_122_Lumbar$Genes
+L_bk_noB <- tpm_122_Lumbar[,-1]
+rownames(L_bk_noB) <- Genes
+```
+
+```{r}
+bk_t <- L_bk_noB %>% t() %>% as.data.frame()
+
+# genelist <- c("MMP9","C1QTNF6") #"ADAMTS5","FOXO1","DLX6","THBS1"
+# bk_t <- bk_t[,colnames(bk_t) %in% genelist]
+
+group <- read_xlsx('/linp/linp/IDD_classification/Formal Analysis/3 Clustering/122Lumbar/New_5/122Lumbar_SC3_CV8000/Group=4.xlsx')
+bk_t$group <- group$cluster
+# bk_t[bk_t$group != 4,]$group <- "rest"
+# bk_t[bk_t$group == 4,]$group <- "target"
+```
+
+## 3 Random Sampling
+```{r}
+set.seed(1)
+trainlist<-sample(nrow(bk_t),7/10*nrow(bk_t))#将数据集划分为7：3
+train_data<-bk_t[trainlist,]
+test_data<-bk_t[-trainlist,]
+```
+
+## 4 RF
+```{r}
+set.seed(1234)
+train_data$group = as.factor(train_data$group)
+test_data$group = as.factor(test_data$group)
+wine_randomforest <- randomForest(group~. ,
+                                  data = train_data,
+                                  #x = train_data,
+                                  ntree =550,
+                                  mtry=186, 
+                                  importance=TRUE ,
+                                  proximity=TRUE)
+wine_randomforest$importance
+plot(wine_randomforest)
+```
+## 5 Prediction
+```{r}
+set.seed(1234)
+pre_ran <- predict(wine_randomforest,
+                   newdata=test_data,
+                   type = "prob",  # type = "prob" !!!非常重要!是ROC有多点的关键。
+                   probability = T)
+pre_ran  <- as.data.frame(pre_ran)
+# for(i in seq(1,nrow(pre_ran))){
+#   pre_ran$max[i] <- max(pre_ran[i,1:2])
+# }
+
+#将真实值和预测值整合到一起
+#obs_p_ran = data.frame(prob=pre_ran$target,obs=test_data$group)
+# for(i in seq(1,nrow(pre_ran))){
+#   if(obs_p_ran[i,]$obs == "target"){obs_p_ran[i,]$prob <- pre_ran[i,]$target}
+#   else{obs_p_ran[i,]$prob <- pre_ran[i,]$rest}
+# }
+
+# #输出混淆矩阵
+# table <- table(test_data$group,pre_ran,dnn=c("Real","Prediction"))
+# table  <- caret::confusionMatrix(as.factor())
+# table
+# 
+# sum(diag(table))/sum(table)#计算预测准确率
+# plot(margin(wine_randomforest,test_data$group),main="观测值被判断正确的概率图")
+
+```
+
+## 6 ROC
+```{r}
+roc1 <- multiclass.roc(test_data$group,pre_ran[,4])
+plot(roc1$rocs[[1]],col="blue")
+```
+### RF
+```{r}
+#true_label <- dummies::dummy(test_df$Species, sep = ".")
+# true_label <- test_data$group
+# true_label <- data.frame(true_label)
+# colnames(true_label) <- gsub(".*?\\.", "", colnames(true_label))
+# colnames(true_label) <- paste(colnames(true_label), "_true")
+true_label <- data.frame(C1_true=rep(0,nrow(test_data)),
+                         C2_true=rep(0,nrow(test_data)),
+                         C3_true=rep(0,nrow(test_data)),
+                         C4_true=rep(0,nrow(test_data)))
+G <- as.numeric(test_data$group)
+for(i in seq(1,nrow(test_data))){
+  true_label[i,G[i]] <- 1
+} 
+colnames(pre_ran) <- c("C1_pred_RF","C2_pred_RF","C3_pred_RF","C4_pred_RF")
+```
+### MNL
+```{r}
+mn_res <- nnet::multinom(Species ~., data = train_df)
+## # weights:  18 (10 variable)
+## initial  value 98.875106 
+## iter  10 value 12.524348
+## iter  20 value 5.495452
+## iter  30 value 5.352345
+## iter  40 value 5.304605
+## iter  50 value 5.251277
+## iter  60 value 5.250840
+## final  value 5.250449 
+## converged
+mn_pred <- predict(mn_res, test_df, type = 'prob')
+mn_pred <- data.frame(mn_pred)
+colnames(mn_pred) <- paste(colnames(mn_pred), "_pred_MN")
+```
+### Plot
+```{r}
+require(multiROC)
+final_df <- cbind(true_label,pre_ran)
+data(test_data)
+roc_res <- multi_roc(final_df, force_diag=T)
+pr_res <- multi_pr(final_df, force_diag=T)
+ 
+plot_roc_df <- plot_roc_data(roc_res)
+plot_pr_df <- plot_pr_data(pr_res)
+# write.xlsx(plot_pr_df,
+#            "/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Random_Forest/RF_CV_656/plot_pr_df_656-3.xlsx",
+#            overwrite = F)
+```
+
+```{r}
+require(ggplot2)
+ggplot(plot_roc_df, aes(x = 1-Specificity, y=Sensitivity)) +
+  geom_path(aes(color = Group), size=1.5) + #linetype=Method
+  geom_segment(aes(x = 0, y = 0, xend = 1, yend = 1), 
+               colour='grey', linetype = 'dotdash') +
+  theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5), 
+        legend.justification=c(1, 0), legend.position=c(.95, .05),
+        legend.title=element_blank(), 
+        legend.background = element_rect(fill=NULL, size=0.5, 
+                                         linetype="solid", colour ="black"))
+```
+```{r}
+require(ggplot2)
+ggplot(plot_pr_df, aes(x = Recall, y=Precision)) +
+  geom_path(aes(color = Group), size=1.5) + #linetype=Method
+  geom_segment(aes(x = 0, y = 1, xend = 1, yend = 0), 
+               colour='grey', linetype = 'dotdash') +
+  theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5), 
+        legend.justification=c(1, 0), legend.position=c(.17, .05),
+        legend.title=element_blank(), 
+        legend.background = element_rect(fill=NULL, size=0.5, 
+                                         linetype="solid", colour ="black"))
+```
+### Save
+```{r}
+write.xlsx(plot_roc_df,
+           "/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Random_Forest/RF_CV_DEGs/top165/plot_roc_df_top165.xlsx",
+           overwrite = F)
+write.xlsx(plot_pr_df,
+           "/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Random_Forest/RF_CV_DEGs/top165/plot_pr_df_top165.xlsx",
+           overwrite = F)
+
+ggsave("/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Random_Forest/RF_CV_DEGs/top165/PR_plot_165.pdf",
+         plot = last_plot(),
+       width =6, height =5,dpi = 300)
+```
+
+```{r}
+h<-test_data
+# h[h$group=='target',]$group <- 1
+# h[h$group=='rest',]$group <- 0
+#pre_ran<-as.numeric(pre_ran)
+prob<-as.numeric(obs_p_ran$prob)
+h$prob <- prob
+
+res<-roc(group~prob,data=h,ci = TRUE,
+         levels=c('target','rest'),direction=">")
+# plot(ran_roc, print.auc=TRUE, auc.polygon=TRUE, grid=c(0.1, 0.2),
+#      grid.col=c("green", "red"),max.auc.polygon=TRUE,auc.polygon.col="skyblue", 
+#      print.thres=TRUE,main='随机森林模型ROC曲线')#绘制ROC曲线
+
+p<-ggroc(res, color ="red",legacy.axes = TRUE)+
+  geom_segment(aes(x = 0, xend = 1, y = 0, yend = 1), color="darkgrey", linetype=4)+
+  theme_bw() + # 设置背景
+  #ggtitle("RF Cluster4 C1QTNF6")+
+  theme(plot.title = element_text(hjust = 0.5,size = 16),
+        axis.text=element_text(size=12,colour = "black"),
+        axis.title.x = element_text(size = 14),
+        axis.title.y = element_text(size = 14))
+
+p+annotate("text",x=0.75,y=0.25,label=paste("AUC = ", round(res$auc,3)))+
+  annotate("text",x=0.75,y=0.20,label=paste("95%CI: ", round(res$ci[1],3),'-',round(res$ci[3],3)))
+
+ggsave("/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Lasso_ROC/RF_Cluster4_min.pdf",
+         plot = last_plot(),
+       width =6, height =5,dpi = 300)
+```
+
+## 7 Find important genes
+```{r}
+importance_otu <- wine_randomforest$importance
+importance_otu <- as.data.frame(importance_otu)
+#作图展示 top30 重要的 OTUs
+varImpPlot(wine_randomforest, 
+           n.var = min(30, nrow(wine_randomforest$importance)), 
+           main = 'Top 30 - variable importance')
+```
+#### Cross-validation
+```{r}
+##交叉验证帮助选择特定数量的 OTUs
+#5 次重复十折交叉验证
+set.seed(123)
+otu_train.cv <- replicate(5, 
+                          rfcv(train_data[-ncol(train_data)], train_data$group, cv.fold = 10,step = 1.5),
+                          simplify = FALSE)
+#otu_train.cv
+
+#提取验证结果绘图
+otu_train.cv <- data.frame(sapply(otu_train.cv, '[[', 'error.cv'))
+otu_train.cv$otus <- rownames(otu_train.cv)
+otu_train.cv <- reshape2::melt(otu_train.cv, id = 'otus')
+otu_train.cv$otus <- as.numeric(as.character(otu_train.cv$otus))
+ 
+#拟合线图
+library(ggplot2)
+library(splines)  #用于在 geom_smooth() 中添加拟合线，或者使用 geom_line() 替代 geom_smooth() 绘制普通折线
+# otu_train.cv2 <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Random_Forest/train_cross.xlsx")
+  
+p <- ggplot(otu_train.cv, aes(otus, value)) +
+  #geom_point(size=0.1)+
+  geom_smooth(se = FALSE,  method = 'glm', formula = y~ns(x, 6)) +
+  theme(panel.grid = element_blank(), panel.background = element_rect(color = 'black', fill = 'transparent')) +
+  labs(title = '',x = 'Number of Genes', y = 'Cross-validation error')
+ 
+p
+
+# write.xlsx(importance_otu,
+#            "/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Random_Forest/RF_CV_DEGs/Importance.xlsx",
+#            overwrite = F)
+```
+
+```{r}
+#大约提取前 30 个重要的 OTUs
+p + geom_vline(xintercept = 246)
+ 
+#根据 OTUs 重要性排序后选择，例如根据“Mean Decrease Accuracy”指标
+importance_otu <- importance_otu[order(importance_otu$MeanDecreaseAccuracy, decreasing = TRUE), ]
+head(importance_otu)
+```
+
+```{r}
+Gene.train <- data.frame(X1=c(),X2=c(),X3=c(),X4=c(),X5=c())
+for(i in seq(1,nrow(otu_train.cv))){
+  Gene.train[otu_train.cv[i,1],as.character(otu_train.cv[i,2])] <- otu_train.cv[i,3]
+}
+Gene.train$Mean <- rowMeans(Gene.train[,1:4])
+```
+
+### Importance save
+```{r}
+importance_otu$SYMBOL <- rownames(importance_otu)
+write.xlsx(importance_otu,
+           "/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Random_Forest/RF_CV_DEGs/Importance.xlsx",
+           overwrite = F)
+```
+
+
+# 4 External data
+## 1 Gene
+```{r}
+#Gene <- c(C1,C2,C3,C4)
+importance_otu <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Random_Forest/RF_CV_DEGs/Importance.xlsx")
+importance_otu <- importance_otu[order(importance_otu$MeanDecreaseAccuracy,decreasing = T),]
+Gene <- importance_otu$SYMBOL[1:248]
+Gene <- unique(Gene)
+#Gene <- Gene[-grep('-',Gene)]
+```
+
+## 2 Data
+```{r}
+tpm_122_Lumbar <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/TPM_122_Lumbar.xlsx") # _no_noisy_5
+tpm_122_Lumbar <- tpm_122_Lumbar[tpm_122_Lumbar$Genes %in% Gene,]
+Genes <- tpm_122_Lumbar$Genes
+L_bk_noB <- tpm_122_Lumbar[,-1]
+rownames(L_bk_noB) <- Genes
+
+# Code <- data.frame(SYMBOL = rownames(L_bk_noB))
+# Code <- bitr(Code$SYMBOL,fromType="SYMBOL",toType="ENTREZID",
+#                 OrgDb = org.Hs.eg.db)
+# Code <- Code[!duplicated(Code$ENTREZID),]
+# Code$Name <- paste("E",Code$ENTREZID,sep = "")
+# rownames(L_bk_noB) <- as.character(Code$Name)
+
+bk_t <- L_bk_noB %>% t() %>% as.data.frame()
+
+# genelist <- c("MMP9","C1QTNF6") #"ADAMTS5","FOXO1","DLX6","THBS1"
+# bk_t <- bk_t[,colnames(bk_t) %in% genelist]
+
+group <- read_xlsx('/linp/linp/IDD_classification/Formal Analysis/3 Clustering/122Lumbar/New_5/122Lumbar_SC3_CV8000/Group=4.xlsx')
+bk_t$group <- group$cluster
+# bk_t[bk_t$group != 4,]$group <- "rest"
+# bk_t[bk_t$group == 4,]$group <- "target"
+```
+
+```{r}
+Code <- data.frame(SYMBOL = rownames(L_bk_noB))
+Code <- bitr(Code$SYMBOL,fromType="SYMBOL",toType="ENTREZID",
+                OrgDb = org.Hs.eg.db)
+```
+
+## 3 RF
+```{r}
+set.seed(1234)
+# train_data$group = as.factor(train_data$group)
+# test_data$group = as.factor(test_data$group)
+bk_t$group = as.factor(bk_t$group)
+wine_randomforest <- randomForest(group~. ,
+                                  data = bk_t,
+                                  #x = train_data,
+                                  ntree =550,
+                                  mtry=186,
+                                  importance=TRUE ,
+                                  proximity=TRUE)
+#wine_randomforest$importance
+#plot(wine_randomforest)
+```
+
+## 4 Prediction
+```{r}
+GSE_all <- read.xlsx("/linp/linp/IDD_classification/Bulk_examples/GSE70362.xlsx")
+L <- c("GSM1725781","GSM1725783","GSM1725785","GSM1725787","GSM1725789","GSM1725791","GSM1725793","GSM1725795","GSM1725797","GSM1725799","GSM1725801","GSM1725803","GSM1725805","GSM1725807","GSM1725809","GSM1725811","GSM1725812","GSM1725815","GSM1725816","GSM1725818","GSM1725820","GSM1725822","GSM1725824","GSM1725826","symbol")
+GSE_all <- GSE_all[,colnames(GSE_all) %in% L]
+write.xlsx(GSE_all,"/linp/linp/IDD_classification/Bulk_examples/GSE70362-NP.xlsx")
+```
+
+```{r}
+path <- "/linp/linp/IDD_classification/Bulk_examples/"
+xlsx_names <- list.files(path)
+# GSE_all <- read.xlsx(paste(path,xlsx_names[1],sep = ""))
+# G <- GSE_all$symbol
+# for(i in seq(2,length(xlsx_names))){
+#   GSE <- read.xlsx(paste(path,xlsx_names[i],sep = ""))
+#   G <- union(G,GSE$symbol)
+# }
+
+GSE_all <- read.xlsx(paste(path,xlsx_names[1],sep = ""))
+# No.G <- G[! G %in% GSE_all$symbol]
+# GSE_all[(length(G)-length(No.G)+1):length(G),]$symbol <- No.G
+# GSE_all[is.na(GSE_all)] <- 0
+
+for(i in seq(2,length(xlsx_names))){
+  GSE <- read.xlsx(paste(path,xlsx_names[i],sep = ""))
+  GSE_all <- full_join(GSE_all,GSE,by = "symbol")
+  #GSE_all[is.na(GSE_all)] <- 0
+}
+```
+### Gene-Name
+```{r}
+GSE_all <- read.xlsx("/linp/linp/IDD_classification/Bulk_examples/GSE15227.xlsx") #GSE70362-NP,GSE15227,GSE23130
+#GSE_all <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/TPM_41_Cervical.xlsx")
+# Code.2 <- data.frame(SYMBOL = GSE_all$symbol)
+# Code.2 <- bitr(Code.2$SYMBOL,fromType="SYMBOL",toType="ENTREZID",
+#                 OrgDb = org.Hs.eg.db)
+# Code.2 <- Code.2[!duplicated(Code.2$SYMBOL),]
+# 
+# GSE_all.2 <- GSE_all[Code.2$ENTREZID %in% Code$ENTREZID,]
+# No.Gene <- Gene[! Gene %in% GSE_all.2$symbol]
+
+GSE_all.2 <- GSE_all[GSE_all$symbol %in% Gene,]
+No.Gene <- Gene[!Gene %in% GSE_all$symbol]
+GSE_all.2[(length(Gene)-length(No.Gene)+1):length(Gene),]$symbol <- No.Gene
+GSE_all.2[is.na(GSE_all.2)] <- 0
+sample.gene <- GSE_all.2$symbol
+
+# Code.3 <- data.frame(SYMBOL = GSE_all.2$symbol)
+# Code.3 <- bitr(Code.3$SYMBOL,fromType="SYMBOL",toType="ENTREZID",
+#                 OrgDb = org.Hs.eg.db)
+# Code.3$Name <- paste("E",Code.3$ENTREZID,sep = "")
+# sample.gene <- as.character(Code.3$Name)
+
+GSE_all.2 <- GSE_all.2[,-ncol(GSE_all.2)]
+rownames(GSE_all.2) <- sample.gene
+```
+### E-code
+```{r}
+GSE_all <- read.xlsx("/linp/linp/IDD_classification/Bulk_examples/GSE23130.xlsx")
+Code.2 <- data.frame(SYMBOL = GSE_all$symbol)
+Code.2 <- bitr(Code.2$SYMBOL,fromType="SYMBOL",toType="ENTREZID",
+                OrgDb = org.Hs.eg.db)
+Code.2 <- Code.2[!duplicated(Code.2$SYMBOL),]
+GSE_all <- GSE_all[GSE_all$symbol %in% Code.2$SYMBOL,]
+GSE_all$symbol <- paste("E",Code.2$ENTREZID,sep = "")
+
+GSE_all.2 <- GSE_all[GSE_all$symbol %in% Code$Name,]
+No.Gene <- Code$Name[! Code$Name %in% GSE_all.2$symbol]
+GSE_all.2[(length(Gene)-length(No.Gene)+1):length(Gene),]$symbol <- No.Gene
+GSE_all.2[is.na(GSE_all.2)] <- 0
+sample.gene <- GSE_all.2$symbol
+
+GSE_all.2 <- GSE_all.2[,-ncol(GSE_all.2)]
+rownames(GSE_all.2) <- sample.gene
+```
+
+```{r}
+predict.data <- t(GSE_all.2) %>% as.data.frame()
+
+set.seed(1234)
+pre_ran <- predict(wine_randomforest,
+                   newdata=predict.data,
+                   type = "class",  # prob = 概率, class = 类别
+                   probability = T,
+                   na.action = na.exclude)
+
+pre_ran  <- as.data.frame(pre_ran)
+table(pre_ran)
+# for(i in seq(1,nrow(pre_ran))){
+#   pre_ran$max[i] <- max(pre_ran[i,1:2])
+# }
+
+#将真实值和预测值整合到一起
+#obs_p_ran = data.frame(prob=pre_ran$target,obs=test_data$group)
+# for(i in seq(1,nrow(pre_ran))){
+#   if(obs_p_ran[i,]$obs == "target"){obs_p_ran[i,]$prob <- pre_ran[i,]$target}
+#   else{obs_p_ran[i,]$prob <- pre_ran[i,]$rest}
+# }
+
+# #输出混淆矩阵
+# table <- table(test_data$group,pre_ran,dnn=c("Real","Prediction"))
+# table  <- caret::confusionMatrix(as.factor())
+# table
+# 
+# sum(diag(table))/sum(table)#计算预测准确率
+# plot(margin(wine_randomforest,test_data$group),main="观测值被判断正确的概率图")
+
+```
+
+# 6 Box paint
+## 1 All
+```{r}
+Box <- data.frame(table(group$cluster))
+colnames(Box) <- c("Cluster","No")
+Box$Source <- "Discovery"
+Box$Per <- Box$No/122
+
+Box.2 <- data.frame(Cluster=c(4,3,1,2),No=c(15,24,19,4),Source=rep("External",4),Per=c(15/62,24/62,19/62,4/62))
+
+paint <- rbind(Box,Box.2)
+
+ggplot(data = paint,aes(x=Source,y=Per,fill=Cluster))+
+  geom_bar(stat = "identity",
+           position = "stack")+
+  geom_text(aes(label = paste(No,"(",round(Per,2),")"),y=Per), 
+            position = position_stack(vjust = 0.5), size = 2.5)+
+  theme(panel.grid =element_blank()) + #去除网格线
+  theme(plot.title = element_text(hjust = 0.5,size=12))+
+  theme(panel.background = element_blank(),
+        axis.line = element_line(),
+        legend.position = "right")
+ggsave("/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Random_Forest/RF_CV_DEGs/top248/Proportion.pdf",
+         plot = last_plot(),
+         device = cairo_pdf,width =3, height = 4,dpi = 300)
+```
+
+## 2 Part
+```{r}
+Box <- data.frame(table(group$cluster))
+colnames(Box) <- c("Cluster","No")
+Box$Source <- "Discovery"
+Box$Per <- Box$No/122
+
+Box.2 <- data.frame(Cluster=c(4,3,1,2,3),No=c(15,23,19,4,1),
+                    Source=c("GSE15227","GSE23130","GSE70362","GSE70362","GSE70362"),
+                    Per=c(15/15,23/23,19/24,4/24,1/24))
+
+paint <- rbind(Box,Box.2)
+
+ggplot(data = paint,aes(x=Source,y=Per,fill=Cluster))+
+  geom_bar(stat = "identity",
+           position = "stack")+
+  geom_text(aes(label = paste(No,"(",round(Per,2),")"),y=Per), 
+            position = position_stack(vjust = 0.5), size = 2.5)+
+  theme(panel.grid =element_blank()) + #去除网格线
+  theme(plot.title = element_text(hjust = 0.5,size=12))+
+  theme(panel.background = element_blank(),
+        axis.line = element_line(),
+        legend.position = "right")
+ggsave("/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Random_Forest/RF_CV_DEGs/top248/Proportion_Part.pdf",
+         plot = last_plot(),
+         device = cairo_pdf,width =5, height = 4,dpi = 300)
+```
+
+# 8 Adjust Coefficiency
+```{r}
+set.seed(1)
+rf <- randomForest(Survived~.,data=train,ntree=100)
+y_pred <- predict(rf,test)
+
+A <- as.matrix(table(y_pred,test$Survived))
+acc <- sum(diag(A))/sum(A)
+acc   
+```
+
+```{r}
+set.seed(1234)
+train_data$group = as.factor(train_data$group)
+test_data$group = as.factor(test_data$group)
+wine_randomforest <- randomForest(group~. ,
+                                  data = train_data,
+                                  #x = train_data,
+                                  ntree =750,
+                                  mtry=32, 
+                                  importance=TRUE ,
+                                  proximity=TRUE)
+plot(wine_randomforest)
+pre_ran <- predict(wine_randomforest,
+                   newdata=test_data,
+                   type = "class",  # type = "prob" !!!非常重要!是ROC有多点的关键。
+                   probability = T)
+#pre_ran  <- as.data.frame(pre_ran)
+
+A <- as.matrix(table(pre_ran,test_data$group))
+acc <- sum(diag(A))/sum(A)
+acc 
+```
+## 1 mtry
+```{r}
+err <- as.numeric()
+for(i in 1:(ncol(train_data)-1)){
+  set.seed(1234)
+  mtry_n <- randomForest(group~. ,
+                         data = train_data,
+                         #ntree =1000,
+                         mtry=i, 
+                         importance=TRUE ,
+                         proximity=TRUE)
+  err <- append(err,mean(mtry_n$err.rate))
+}
+#print(err)
+mtry <- which.min(err)
+mtry
+err[mtry]
+```
+
+## 2 ntree
+```{r}
+library(caret)
+# set.seed(1234)
+# ntree_fit <- randomForest(group~. ,
+#                          data = train_data,
+#                          ntree =1000,
+#                          mtry=mtry)
+# plot(ntree_fit)
+set.seed(1234)
+bk_t$group <- as.factor(bk_t$group)
+fold <- createFolds(y = bk_t$group, k=10)
+right <- as.numeric()
+for (i in seq(500,2000,50)){
+  accuracy <- as.numeric()
+  for(j in 1:10){
+    fold_test <- bk_t[fold[[j]],]
+    fold_train <- bk_t[-fold[[j]],]
+    set.seed(1234)
+    fold_fit <- randomForest(group~. ,data=fold_train,mtry=mtry,
+                             ntree=i)
+    fold_pred <- predict(fold_fit,fold_test)
+    confumat <- as.matrix(table(fold_pred,fold_test$group))
+    acc <- sum(diag(confumat))/sum(confumat)
+    accuracy = append(accuracy,acc)
+  }
+  right <- append(right,mean(accuracy))
+}
+print(max(right))
+print(which.max(right)*50+500)
+```

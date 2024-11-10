@@ -1,0 +1,237 @@
+
+# 1 Preparation
+```{r}
+library(ggradar)
+library(fmsb)
+```
+
+# 2 Radarchart
+## 1 Data 
+```{r}
+P.data <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/GSVA/GSVA_HGS.xlsx")
+Terms <- P.data$terms
+P.data <- P.data[,-1]
+rownames(P.data) <- Terms
+
+group <- read_xlsx('/linp/linp/IDD_classification/Formal Analysis/3 Clustering/122Lumbar/New_5/122Lumbar_SC3_CV8000/Group=4.xlsx')
+
+G1.sam <- group[group$cluster == 1,]$samples
+G2.sam <- group[group$cluster == 2,]$samples
+G3.sam <- group[group$cluster == 3,]$samples
+G4.sam <- group[group$cluster == 4,]$samples
+
+G1.matrix <- P.data[ , colnames(P.data) %in% G1.sam]
+rownames(G1.matrix) <- rownames(P.data)
+G2.matrix <- P.data[ , colnames(P.data) %in% G2.sam]
+rownames(G2.matrix) <- rownames(P.data)
+G3.matrix <- P.data[ , colnames(P.data) %in% G3.sam]
+rownames(G3.matrix) <- rownames(P.data)
+G4.matrix <- P.data[ , colnames(P.data) %in% G4.sam]
+rownames(G4.matrix) <- rownames(P.data)
+
+Mean.Matrix <- data.frame(Max =c(rep(0.5,50)),
+                          Min =c(rep(-0.5,50)),
+                          C1 = rowMeans(G1.matrix),
+                          C2 = rowMeans(G2.matrix),
+                          C3 = rowMeans(G3.matrix),
+                          C4 = rowMeans(G4.matrix))
+Mean.Matrix <- t(Mean.Matrix) %>% as.data.frame()
+```
+
+## 2 Visualization
+```{r}
+HSG <- c("hallmark_protein_secretion","hallmark_glycolysis",
+         "hallmark_tgf_beta_signaling",
+         "hallmark_oxidative_phosphorylation","hallmark_reactive_oxygen_species_pathway",
+         "hallmark_inflammatory_response"
+         )
+paint <- Mean.Matrix[c("Max","Min","C1"),HSG] %>% as.data.frame()
+
+radarchart(
+  paint, axistype = 1,
+  # Customize the polygon
+  pcol = "#00AFBB", pfcol = scales::alpha("#00AFBB", 0.5), plwd = 2, plty = 1,
+  # Customize the grid
+  cglcol = "grey", cglty = 1, cglwd = 0.8,
+  # Customize the axis
+  axislabcol = "grey", 
+  # Variable labels
+  vlcex = 0.7, vlabels = colnames(paint),
+  caxislabels = c(-0.5, -0.25, 0,0.25, 0.5)
+  )
+```
+
+
+# 3 ggradar
+## 1 Data
+```{r}
+P.data <- read_xlsx("/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/GSVA/GSVA_go.xlsx") #详见文件夹中的文件类别，数据均已保存
+Terms <- P.data$terms
+P.data <- P.data[,-1]
+rownames(P.data) <- Terms
+
+group <- read_xlsx('/linp/linp/IDD_classification/Formal Analysis/3 Clustering/122Lumbar/New_5/122Lumbar_SC3_CV8000/Group=4.xlsx')
+
+G1.sam <- group[group$cluster == 1,]$samples
+G2.sam <- group[group$cluster == 2,]$samples
+G3.sam <- group[group$cluster == 3,]$samples
+G4.sam <- group[group$cluster == 4,]$samples
+
+G1.matrix <- P.data[ , colnames(P.data) %in% G1.sam]
+rownames(G1.matrix) <- rownames(P.data)
+G2.matrix <- P.data[ , colnames(P.data) %in% G2.sam]
+rownames(G2.matrix) <- rownames(P.data)
+G3.matrix <- P.data[ , colnames(P.data) %in% G3.sam]
+rownames(G3.matrix) <- rownames(P.data)
+G4.matrix <- P.data[ , colnames(P.data) %in% G4.sam]
+rownames(G4.matrix) <- rownames(P.data)
+
+Mean.Matrix <- data.frame(C1 = rowMeans(G1.matrix),
+                          C2 = rowMeans(G2.matrix),
+                          C3 = rowMeans(G3.matrix),
+                          C4 = rowMeans(G4.matrix))
+Mean.Matrix <- t(Mean.Matrix) %>% as.data.frame()
+
+Mean.Matrix <- data.frame(Group <- c("C1","C2","C3","C4"), Mean.Matrix)
+colnames(Mean.Matrix) <- c("Group" , colnames(Mean.Matrix)[-1])
+```
+
+## 2 Visualization
+```{r,fig.height=5,fig.width=10}
+# HSG <- c("hallmark_protein_secretion","hallmark_glycolysis",
+#          "hallmark_tgf_beta_signaling",
+#          "hallmark_oxidative_phosphorylation","hallmark_reactive_oxygen_species_pathway",
+#          "hallmark_inflammatory_response"
+#          )
+GO <- c("gobp_chondrocyte_differentiation","gobp_positive_regulation_of_ossification",
+        "gobp_regulation_of_cell_adhesion","gobp_circadian_rhythm",
+        "gobp_positive_regulation_of_glycolytic_process","gobp_oxidative_phosphorylation")
+paint <- Mean.Matrix[,c("Group",GO)] %>% as.data.frame()
+
+ggradar(
+  paint, 
+  values.radar = c(" ", " ", " "),# 最小，平均和最大网格线显示的数值
+  grid.min = -0.4, # 绘制最小网格线的值
+  grid.mid = -0.1, # 绘制平均网格线的值
+  grid.max = 0.2, # 绘制最大网格线的值
+  # Polygons
+  group.line.width = 1, 
+  group.point.size = 3,
+  #group.colours = "#00AFBB",
+  # Background and grid lines
+  background.circle.colour = "white",
+  gridline.mid.colour = "grey",
+)#+ facet_wrap(vars(Group))
+
+# ggsave("/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/Figures/Radar_combine.pdf",
+#          plot = last_plot(),
+#          device = cairo_pdf,width =10, height =8,dpi = 300)
+```
+
+## 3 All data merge
+### 1 function
+```{r}
+To.Mean.Matrix <- function(P.data,group){
+  Terms <- P.data$terms
+  P.data <- P.data[,-1]
+  rownames(P.data) <- Terms
+
+  G1.sam <- group[group$cluster == 1,]$samples
+  G2.sam <- group[group$cluster == 2,]$samples
+  G3.sam <- group[group$cluster == 3,]$samples
+  G4.sam <- group[group$cluster == 4,]$samples
+
+  G1.matrix <- P.data[ , colnames(P.data) %in% G1.sam]
+  rownames(G1.matrix) <- rownames(P.data)
+  G2.matrix <- P.data[ , colnames(P.data) %in% G2.sam]
+  rownames(G2.matrix) <- rownames(P.data)
+  G3.matrix <- P.data[ , colnames(P.data) %in% G3.sam]
+  rownames(G3.matrix) <- rownames(P.data)
+  G4.matrix <- P.data[ , colnames(P.data) %in% G4.sam]
+  rownames(G4.matrix) <- rownames(P.data)
+
+  Mean.Matrix <- data.frame(C1 = rowMeans(G1.matrix),
+                          C2 = rowMeans(G2.matrix),
+                          C3 = rowMeans(G3.matrix),
+                          C4 = rowMeans(G4.matrix))
+  Mean.Matrix <- t(Mean.Matrix) %>% as.data.frame()
+
+  Mean.Matrix <- data.frame(Group <- c("C1","C2","C3","C4"), Mean.Matrix)
+  colnames(Mean.Matrix) <- c("Group" , colnames(Mean.Matrix)[-1])
+  
+  return(Mean.Matrix)
+}
+```
+
+### 2 HSG.Matrix
+```{r}
+P.data <- read_xlsx("/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/GSVA/GSVA_HGS.xlsx")
+
+group <- read_xlsx('/linp/linp/IDD_classification/Formal Analysis/3 Clustering/122Lumbar/New_5/122Lumbar_SC3_CV8000/Group=4.xlsx')
+
+HSG.Matrix <- To.Mean.Matrix(P.data = P.data, group = group)
+
+HSG <- HSG.Matrix[,c("hallmark_apoptosis")]
+```
+
+### 3 KEGG.Matrix
+```{r}
+P.data <- read_xlsx("/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/GSVA/GSVA_kegg.xlsx")
+
+group <- read_xlsx('/linp/linp/IDD_classification/Formal Analysis/3 Clustering/122Lumbar/New_5/122Lumbar_SC3_CV8000/Group=4.xlsx')
+
+KEGG.Matrix <- To.Mean.Matrix(P.data = P.data, group = group)
+
+KEGG <- KEGG.Matrix[,c("kegg_glycosaminoglycan_biosynthesis_chondroitin_sulfate",
+                       "kegg_glycosaminoglycan_biosynthesis_heparan_sulfate",
+                       "kegg_glycosaminoglycan_biosynthesis_keratan_sulfate")]
+KEGG$GAG_biosynthesis <- rowMeans(KEGG[,-1])
+```
+
+### 4 GO.Matrix
+```{r}
+P.data <- read_xlsx("/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/GSVA/GSVA_go.xlsx")
+
+group <- read_xlsx('/linp/linp/IDD_classification/Formal Analysis/3 Clustering/122Lumbar/New_5/122Lumbar_SC3_CV8000/Group=4.xlsx')
+
+GO.Matrix <- To.Mean.Matrix(P.data = P.data, group = group)
+
+GO <- GO.Matrix[,c("Group",
+                   "gobp_collagen_biosynthetic_process",
+                   #"gobp_cell_aging",
+                   "gobp_aging",
+                   "gobp_positive_regulation_of_extracellular_matrix_assembly",
+                   "gobp_mitotic_cell_cycle",
+                   "gobp_inflammatory_response")]
+```
+
+### 5 Integration
+```{r,fig.height=5,fig.width=10}
+paint <- GO
+# paint$Apoptosis <- HSG
+# paint$GAG_biosynthesis <- KEGG$GAG_biosynthesis
+
+paint.2 <- paint[,-1]
+paint.2 <- scale(paint.2) %>% as.data.frame() 
+paint.2 <- data.frame(Group = paint[,1],paint.2)
+
+ggradar(
+  paint.2, 
+  values.radar = c(" ", " ", " "),# 最小，平均和最大网格线显示的值
+  grid.min = -1.5, # 绘制最小网格线的值
+  grid.mid = 0, # 绘制平均网格线的值
+  grid.max = 1.5, # 绘制最大网格线的值
+  # Polygons
+  group.line.width = 1, 
+  group.point.size = 3,
+  #group.colours = "#00AFBB",
+  # Background and grid lines
+  background.circle.colour = "white",
+  gridline.mid.colour = "grey"
+)
+
+```
+
+
+
+

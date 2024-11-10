@@ -1,0 +1,211 @@
+
+# 1 Preparation
+```{r}
+library(ReactomePA)
+library(tidyverse)
+library(data.table)
+library(org.Hs.eg.db)
+library(clusterProfiler)
+library(biomaRt)
+library(enrichplot)
+```
+
+# 2 Analysis
+```{r}
+Type <- 'Limma/'
+path <- "/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/DEGs/"
+path <- paste(path,Type,sep = "")
+xlsx_names <- list.files(path)
+```
+
+## 1 GO
+```{r}
+for(i in seq(1,length(xlsx_names))){
+  C_DEGs <- read_xlsx(paste(path,xlsx_names[i],sep = ""))
+  if(Type == 'Limma/'){
+      C_DEGs <- C_DEGs[(C_DEGs$adj.P.Val<0.05),] # Limma
+      C_DEGs <- C_DEGs[(C_DEGs$logFC > 0.5)|(C_DEGs$logFC < -0.5),] 
+      C_DEGs <- C_DEGs[order(C_DEGs$logFC,decreasing = T),]
+  }
+  else if(Type == 'DEseq2/'){
+      C_DEGs <- C_DEGs[(C_DEGs$padj <0.05),]  # DEseq2
+      C_DEGs <- C_DEGs[(C_DEGs$log2FoldChange > 0.5)|(C_DEGs$log2FoldChange < -0.5),]
+      C_DEGs <- C_DEGs[order(C_DEGs$log2FoldChange, decreasing = T),]
+  }
+
+  diff <- C_DEGs
+  gene.df <- bitr(diff$SYMBOL,fromType="SYMBOL",toType="ENTREZID",
+                OrgDb = org.Hs.eg.db)
+  
+  if(Type == 'Limma/'){
+      gene <- diff$logFC
+  }
+  else if(Type == 'DEseq2/'){
+      gene <- diff$log2FoldChange
+  }
+
+  names(gene) = as.character(gene.df$ENTREZID)
+  gene <- sort(gene,decreasing = T)
+    #TCGA数据框如果没有进行基因注释，那么fromType应该是Ensembl，各种ID之间可以互相转换,toType可以是一个字符串，也可以是一个向  量，看自己需求                     
+  
+  Go_gseresult <- gseGO(geneList = gene, 
+                        'org.Hs.eg.db', 
+                        keyType = "ENTREZID", 
+                        ont="BP", 
+                        nPerm = 1000, 
+                        minGSSize = 10, 
+                        maxGSSize = 1000, 
+                        pvalueCutoff=1)
+# GSEA分析——KEGG
+#   KEGG_gseresult <- gseKEGG(gene, nPerm = 1000, minGSSize = 10, maxGSSize = 1000, pvalueCutoff=1)
+# #GSEA分析——Reactome
+#   Go_Reactomeresult <- gsePathway(gene, nPerm = 1000, minGSSize = 10, maxGSSize = 1000, pvalueCutoff=1)
+
+  result <- as.data.frame(Go_gseresult@result)
+  result <- result[result$pvalue<0.05,]
+  
+  result <- result[order(result$NES,decreasing = TRUE),] 
+  result <- result[order(result$pvalue,decreasing = FALSE),] #将pvalue从小到大排序
+  
+  #result$Description <- rownames(result)
+  err <- try(rownames(result) <- 1:nrow(result), TRUE)
+  if("try-error" %in% class(err)){
+    next
+  }
+  rownames(result) <- 1:nrow(result)
+  result$order=factor(rev(as.integer(rownames(result))),
+                    labels = rev(result$Description))
+
+  outpath <- "/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/GSEA/"
+  outpath <- paste(outpath,Type,"logFC0.5_GSEA_GO_",sep = "")
+  
+  openxlsx::write.xlsx(result,
+                      paste(outpath,i,'.xlsx',sep = ""),
+                      overwrite = F)
+}
+```
+
+## 2 Reactome
+```{r}
+for(i in seq(1,length(xlsx_names))){
+  C_DEGs <- read_xlsx(paste(path,xlsx_names[i],sep = ""))
+  if(Type == 'Limma/'){
+      C_DEGs <- C_DEGs[(C_DEGs$adj.P.Val<0.05),] # Limma
+      C_DEGs <- C_DEGs[(C_DEGs$logFC > 0.5)|(C_DEGs$logFC < -0.5),] 
+      C_DEGs <- C_DEGs[order(C_DEGs$logFC,decreasing = T),]
+  }
+  else if(Type == 'DEseq2/'){
+      C_DEGs <- C_DEGs[(C_DEGs$padj <0.05),]  # DEseq2
+      C_DEGs <- C_DEGs[(C_DEGs$log2FoldChange > 0.5)|(C_DEGs$log2FoldChange < -0.5),]
+      C_DEGs <- C_DEGs[order(C_DEGs$log2FoldChange, decreasing = T),]
+  }
+
+  diff <- C_DEGs
+  gene.df <- bitr(diff$SYMBOL,fromType="SYMBOL",toType="ENTREZID",
+                OrgDb = org.Hs.eg.db)
+  
+  if(Type == 'Limma/'){
+      gene <- diff$logFC
+  }
+  else if(Type == 'DEseq2/'){
+      gene <- diff$log2FoldChange
+  }
+
+  names(gene) = as.character(gene.df$ENTREZID)
+  gene <- sort(gene,decreasing = T)
+    #TCGA数据框如果没有进行基因注释，那么fromType应该是Ensembl，各种ID之间可以互相转换,toType可以是一个字符串，也可以是一个向  量，看自己需求                     
+  
+# #GSEA分析——Reactome
+  Reactome_result <- gsePathway(gene, nPerm = 1000, minGSSize = 10, maxGSSize = 1000, pvalueCutoff=1)
+
+  result <- as.data.frame(Reactome_result@result)
+  result <- result[result$pvalue<0.05,]
+  
+  result <- result[order(result$NES,decreasing = TRUE),] 
+  result <- result[order(result$pvalue,decreasing = FALSE),] #将pvalue从小到大排序
+  
+  #result$Description <- rownames(result)
+  err <- try(rownames(result) <- 1:nrow(result), TRUE)
+  if("try-error" %in% class(err)){
+    next
+  }
+  rownames(result) <- 1:nrow(result)
+  result$order=factor(rev(as.integer(rownames(result))),
+                    labels = rev(result$Description))
+
+  outpath <- "/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/GSEA/"
+  outpath <- paste(outpath,Type,"logFC0.5_GSEA_Reactome_",sep = "")
+  
+  openxlsx::write.xlsx(result,
+                      paste(outpath,i,'.xlsx',sep = ""),
+                      overwrite = F)
+}
+```
+
+# 3 Visualization
+```{r}
+gseaplot(Go_gseresult,1,pvalue_table = TRUE) #输出第1个结果
+gseaplot2(Go_gseresult,2,pvalue_table = TRUE)#输出第2个结果
+gseaplot2(Go_gseresult, 1:4, pvalue_table = TRUE)
+```
+# 4 Intersect
+```{r}
+part <- "Limma"
+path <- "/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/GSEA/"
+GO.C1 <- read.xlsx(paste(path,part,'/logFC0.5_GSEA_GO_1.xlsx',sep = ""))
+GO.C2 <- read.xlsx(paste(path,part,'/logFC0.5_GSEA_GO_2.xlsx',sep = ""))
+GO.C3 <- read.xlsx(paste(path,part,'/logFC0.5_GSEA_GO_3.xlsx',sep = ""))
+GO.C4 <- read.xlsx(paste(path,part,'/logFC0.5_GSEA_GO_4.xlsx',sep = ""))
+```
+
+```{r}
+term.list.1 <- intersect(GO.C1$Description,GO.C2$Description)
+term.list.2 <- intersect(GO.C3$Description,GO.C4$Description)
+term.list <- intersect(term.list.1,term.list.2)
+target <- c("immune system process",
+            "immune response",
+            "inflammatory response",
+            "leukocyte activation",
+            "lymphocyte activation",
+            "mitotic cell cycle process",
+            "tumor necrosis factor production",
+            "neutrophil migration",
+            "osteoclast differentiation",
+            "interleukin-1 production",
+            "superoxide metabolic process")
+```
+
+```{r}
+GO.C1$Group = "C1"
+GO.C2$Group = "C2"
+GO.C3$Group = "C3"
+GO.C4$Group = "C4"
+GO_all <- rbind(GO.C1,GO.C2,GO.C3,GO.C4)
+```
+## Violin
+```{r}
+target.n <- target[2]
+paint <- GO_all[GO_all$Description == target.n,]
+```
+
+```{R}
+ggplot(paint,aes(x=Group,y=enrichmentScore,
+                 #color=group,
+                 fill=Group))+
+  theme_bw()+#改变绘图主题
+  stat_compare_means(aes(label = ..p.signif..),
+                     comparisons = list(c('1','2'),c('1','3'),c('1','4'),c('2','3'),c('2','4'),c('3','4')
+                     # comparisons = list(c('1','2'),c('1','3'),c('1','4'), c('1','5'),
+                     #                    c('2','3'),c('2','4'),c('2','5'),
+                     #                    c('3','4'),c('3','5'),c('4','5')
+                     #comparisons = list(c('1','2'),c('1','3'),c('2','3')
+                                        ))+#添加检验
+#  geom_signif(comparisons = list(c('1','2'),c('2','3'),c('1','3')))+
+  labs(title = target.n)+
+  #theme_classic()+
+  theme(plot.title = element_text(hjust = 0.5,size=12))+
+  geom_violin()+ #trim=FALSE
+  geom_boxplot(width = 0.1,fill="white")+
+  scale_fill_brewer(palette="Set2")+
+  theme(panel.grid=element_blank())
+```

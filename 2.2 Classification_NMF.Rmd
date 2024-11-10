@@ -1,0 +1,62 @@
+# 1 Preparation
+## 1.1 Library
+```{r}
+library(NMF)
+#library(doMPI) 
+```
+## 1.2 Bulk data
+```{r}
+library(openxlsx)
+library(readxl)
+
+Bulk_data = read_xlsx("/linp/linp/IDD_classification/Samples_matrix/105samples.xlsx")
+genes <- Bulk_data$Genes
+```
+
+### 1.2.1 Lumbar data
+```{r}
+L_bk <- Bulk_data[,26:ncol(Bulk_data)]
+rownames(L_bk) <- genes
+#Exclude 12 blood contaminated samples:
+L_pollu <- c('L02A','L02B','L04','L11','L45','L49','L57','L59','L68A','L68B','L73B','L77') 
+L_bk_noB <- L_bk[,!(colnames(L_bk) %in% L_pollu)]
+L_bk_noB <- L_bk_noB[,colnames(L_bk_noB) != 'L28W']
+
+rownames(L_bk_noB) <- genes
+L_bk_noB[is.na(L_bk_noB)] <- 0
+n_scale <-  scale(L_bk_noB)
+n_scale[is.na(n_scale)] <- 0
+
+L_bk_noB_t <- t(L_bk_noB)
+t_scale <- scale(L_bk_noB_t)
+t_scale[is.na(t_scale)] <- 0
+
+table(rowSums(L_bk_noB) == 0)
+```
+
+# 2 NMF
+## 2.1 Find best k
+```{r}
+res <- nmf(L_bk_noB,2:7,nrun=10)
+plot(res)
+```
+## 2.2 Further analysis
+```{r}
+res_4 <- nmf(L_bk_noB,4,nrun=10)
+coefmap(res_4)
+consensusmap(res_4)
+```
+## 2.3 Export groups
+```{r}
+group <- predict(res_4)
+group <- as.data.frame(group)
+```
+
+## 2.4 Group saving
+```{r}
+G_data <- data.frame(rownames(group),group$group)
+colnames(G_data) <- c('samples','group')
+openxlsx::write.xlsx(G_data,
+                     '/linp/linp/IDD_classification/105Samples/Group/NMF_group.xlsx',
+                     overwrite = FALSE)
+```

@@ -1,0 +1,182 @@
+# 1 TPM combination
+## 1 154 Samples
+```{r}
+tpm_sam105 <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/105samples.xlsx")
+tpm_sam49 <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/49samples.xlsx")
+
+tpm_sam49$Genes <- str_sub(tpm_sam49$Gene.Symbol,2,-2)
+tpm_sam49 <- tpm_sam49[,c(3:ncol(tpm_sam49))]
+tpm_sam49.2 <- data.frame(tpm_sam49[,ncol(tpm_sam49)],tpm_sam49[,c(1:ncol(tpm_sam49)-1)])
+
+Sam_names <- colnames(tpm_sam49.2)
+for(i in seq(2:(ncol(tpm_sam49.2)+1))){
+  a <- strsplit(Sam_names[i],"")[[1]]
+  Sam_names[i] <- substring(Sam_names[i],first = 1, last = length(a)-4)
+}
+Sam_names[1] <- 'Genes'
+colnames(tpm_sam49.2) <- Sam_names
+
+tpm_sam49 <- tpm_sam49.2
+```
+
+```{r}
+Combination <- full_join(tpm_sam105,tpm_sam49,by="Genes")
+Combination[is.na(Combination)] <- 0
+Combination <- Combination[rowSums(Combination[,-1]) != 0,]
+Combination.2 <- data.frame(Combination[,c(1:25)],Combination[,c(107:115)],
+                            Combination[,c(26:106)],Combination[,c(123:134)],
+                            Combination[,c(116:122)],Combination[,c(135:155)])
+openxlsx::write.xlsx(Combination.2,
+                     "/linp/linp/IDD_classification/Formal Analysis/Primary matrix/TPM_154_Samples.xlsx",
+                     overwrite = F)
+
+Combination.Cervical <- data.frame(Combination.2[,c(1:34)])
+openxlsx::write.xlsx(Combination.Cervical,
+                     "/linp/linp/IDD_classification/Formal Analysis/Primary matrix/TPM_33_Cervical.xlsx",
+                     overwrite = F)
+
+Combination.Lumbar <- data.frame(Combination.2[,c(1,35:155)])
+openxlsx::write.xlsx(Combination.Lumbar,
+                     "/linp/linp/IDD_classification/Formal Analysis/Primary matrix/TPM_121_Lumbar.xlsx",
+                     overwrite = F)
+```
+
+## 2 164 Samples
+```{r}
+tpm_sam154 <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/TPM_154_Samples.xlsx")
+tpm_sam10 <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/TPM_10_Samples.xlsx")
+
+tpm_sam10$Genes <- str_sub(tpm_sam10$Gene.Symbol,2,-2)
+tpm_sam10 <- tpm_sam10[,c(3:ncol(tpm_sam10))]
+tpm_sam10.2 <- data.frame(tpm_sam10[,ncol(tpm_sam10)],tpm_sam10[,c(1:ncol(tpm_sam10)-1)])
+
+Sam_names <- colnames(tpm_sam10.2)
+for(i in seq(2:(ncol(tpm_sam10.2)+1))){
+  a <- strsplit(Sam_names[i],"")[[1]]
+  Sam_names[i] <- substring(Sam_names[i],first = 1, last = length(a)-4)
+}
+Sam_names[1] <- 'Genes'
+colnames(tpm_sam10.2) <- Sam_names
+
+tpm_sam10 <- tpm_sam10.2
+```
+
+```{r}
+Combination <- full_join(tpm_sam154,tpm_sam10,by="Genes")
+Combination[is.na(Combination)] <- 0
+Combination <- Combination[rowSums(Combination[,-1]) != 0,]
+Combination.2 <- data.frame(Combination[,c(1:25)],Combination[,c(156:163)],
+                            Combination[,c(26:115)],Combination$L80,
+                            Combination[,c(116:118)],Combination$L86,
+                            Combination[,c(119:155)])
+colnames(Combination.2) <- c(colnames(Combination.2)[1:123],'L80',
+                             colnames(Combination.2)[125:127],'L86',
+                             colnames(Combination.2)[129:165])
+
+openxlsx::write.xlsx(Combination.2,
+                     "/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/TPM_164_Samples.xlsx",
+                     overwrite = F)
+
+Combination.Cervical <- data.frame(Combination.2[,c(1:42)])
+Combination.Cervical <- Combination.Cervical[rowSums(Combination.Cervical[,-1]) != 0,]
+openxlsx::write.xlsx(Combination.Cervical,
+                     "/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/TPM_41_Cervical.xlsx",
+                     overwrite = F)
+
+Combination.Lumbar <- data.frame(Combination.2[,c(1,43:165)])
+Combination.Lumbar <- Combination.Lumbar[rowSums(Combination.Lumbar[,-1]) != 0,]
+openxlsx::write.xlsx(Combination.Lumbar,
+                     "/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/TPM_123_Lumbar.xlsx",
+                     overwrite = F)
+```
+
+# 2 Count Combination
+## 1 154 Samples
+```{r}
+count_sam105 <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/Primary matrix/105samples_Count.xlsx")
+count_sam49 <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/Primary matrix/Read Count 49Sam.xlsx")
+
+count_sam49$Genes <- str_sub(count_sam49$Gene.Symbol,2,-2)
+count_sam49 <- count_sam49[,c(4:ncol(count_sam49))]
+count_sam49.2 <- data.frame(count_sam49[,ncol(count_sam49)],count_sam49[,c(1:ncol(count_sam49)-1)])
+
+Sam_names <- colnames(count_sam49.2)
+for(i in seq(2:(ncol(count_sam49.2)+1))){
+  a <- strsplit(Sam_names[i],"")[[1]]
+  Sam_names[i] <- substring(Sam_names[i],first = 1, last = length(a)-11)
+}
+Sam_names[1] <- 'Genes'
+colnames(count_sam49.2) <- Sam_names
+
+count_sam49 <- count_sam49.2
+```
+
+```{r}
+Combination <- full_join(count_sam105,count_sam49,by="Genes")
+Combination[is.na(Combination)] <- 0
+Combination.2 <- data.frame(Combination[,c(1:25)],Combination[,c(107:115)],
+                            Combination[,c(26:106)],Combination[,c(123:134)],
+                            Combination[,c(116:122)],Combination[,c(135:155)])
+openxlsx::write.xlsx(Combination.2,
+                     "/linp/linp/IDD_classification/Formal Analysis/Primary matrix/Count_154_Samples.xlsx",
+                     overwrite = F)
+
+Combination.Cervical <- data.frame(Combination.2[,c(1:34)])
+openxlsx::write.xlsx(Combination.Cervical,
+                     "/linp/linp/IDD_classification/Formal Analysis/Primary matrix/Count_33_Cervical.xlsx",
+                     overwrite = F)
+
+Combination.Lumbar <- data.frame(Combination.2[,c(1,35:155)])
+openxlsx::write.xlsx(Combination.Lumbar,
+                     "/linp/linp/IDD_classification/Formal Analysis/Primary matrix/Count_121_Lumbar.xlsx",
+                     overwrite = F)
+```
+
+## 2 164 Samples
+```{r}
+count_sam154 <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/Count_154_Samples.xlsx")
+count_sam10 <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/Count_10_Samples.xlsx")
+
+count_sam10$Genes <- str_sub(count_sam10$Gene.Symbol,2,-2)
+count_sam10 <- count_sam10[,c(3:ncol(count_sam10))]
+count_sam10.2 <- data.frame(count_sam10[,ncol(count_sam10)],count_sam10[,c(1:ncol(count_sam10)-1)])
+
+Sam_names <- colnames(count_sam10.2)
+for(i in seq(2:(ncol(count_sam10.2)+1))){
+  a <- strsplit(Sam_names[i],"")[[1]]
+  Sam_names[i] <- substring(Sam_names[i],first = 1, last = length(a)-4)
+}
+Sam_names[1] <- 'Genes'
+colnames(count_sam10.2) <- Sam_names
+
+count_sam10 <- count_sam10.2
+```
+
+```{r}
+Combination <- full_join(count_sam154,count_sam10,by="Genes")
+Combination[is.na(Combination)] <- 0
+Combination <- Combination[rowSums(Combination[,-1]) != 0,]
+Combination.2 <- data.frame(Combination[,c(1:25)],Combination[,c(156:163)],
+                            Combination[,c(26:115)],Combination$L80,
+                            Combination[,c(116:118)],Combination$L86,
+                            Combination[,c(119:155)])
+colnames(Combination.2) <- c(colnames(Combination.2)[1:123],'L80',
+                             colnames(Combination.2)[125:127],'L86',
+                             colnames(Combination.2)[129:165])
+
+openxlsx::write.xlsx(Combination.2,
+                     "/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/Count_164_Samples.xlsx",
+                     overwrite = F)
+
+Combination.Cervical <- data.frame(Combination.2[,c(1:42)])
+Combination.Cervical <- Combination.Cervical[rowSums(Combination.Cervical[,-1]) != 0,]
+openxlsx::write.xlsx(Combination.Cervical,
+                     "/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/Count_41_Cervical.xlsx",
+                     overwrite = F)
+
+Combination.Lumbar <- data.frame(Combination.2[,c(1,43:165)])
+Combination.Lumbar <- Combination.Lumbar[rowSums(Combination.Lumbar[,-1]) != 0,]
+openxlsx::write.xlsx(Combination.Lumbar,
+                     "/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/Count_123_Lumbar.xlsx",
+                     overwrite = F)
+```

@@ -1,0 +1,430 @@
+
+# 1 Information
+## 1 Data adjust
+### 1 120Lumbar
+```{r}
+cli_infor_120 <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/5 Clinical information/120_Lumbar_part1_20230817.xlsx")
+```
+
+```{r}
+cli_infor_120[cli_infor_120$Age <= 30,]$Age <- "~30"
+cli_infor_120[(cli_infor_120$Age > 30)&(cli_infor_120$Age <= 40),]$Age <- "31~40"
+cli_infor_120[(cli_infor_120$Age > 40)&(cli_infor_120$Age <= 50),]$Age <- "41~50"
+cli_infor_120[(cli_infor_120$Age > 50)&(cli_infor_120$Age <= 60),]$Age <- "51~60"
+cli_infor_120[cli_infor_120$Age > 60,]$Age <- "61~"
+
+cli_infor_120[cli_infor_120$BMI < 24,]$BMI <- "~24"
+cli_infor_120[(cli_infor_120$BMI>=24)&(cli_infor_120$BMI<27),]$BMI <- "24~27"
+cli_infor_120[cli_infor_120$BMI >=27,]$BMI <- "27~"
+
+cli_infor_120[cli_infor_120$Course.of.disease > 3,]$Course.of.disease <- "Chronic"
+cli_infor_120[(cli_infor_120$Course.of.disease > 1)&(cli_infor_120$Course.of.disease <= 3),]$Course.of.disease <- "Subacute"
+cli_infor_120[cli_infor_120$Course.of.disease <= 1,]$Course.of.disease <- "Acute"
+
+cli_infor_120[cli_infor_120$Lumbar.VAS >= 7,]$Lumbar.VAS <- "Serious"
+cli_infor_120[cli_infor_120$Lumbar.VAS <= 3,]$Lumbar.VAS <- "Light"
+cli_infor_120[(cli_infor_120$Lumbar.VAS > 3)&(cli_infor_120$Lumbar.VAS <= 6),]$Lumbar.VAS <- "Meddle"
+
+cli_infor_120[cli_infor_120$Leg.VAS >= 7,]$Leg.VAS <- "Serious"
+cli_infor_120[cli_infor_120$Leg.VAS <= 3,]$Leg.VAS <- "Light"
+cli_infor_120[(cli_infor_120$Leg.VAS > 3)&(cli_infor_120$Leg.VAS <= 6),]$Leg.VAS <- "Meddle"
+
+cli_infor_120[is.na(cli_infor_120$`ODI（%）`),]$`ODI（%）` <- 6000
+cli_infor_120[(cli_infor_120$`ODI（%）` > 50)&(cli_infor_120$`ODI（%）` <= 100),]$`ODI（%）` <- "50~100"
+cli_infor_120[cli_infor_120$`ODI（%）` <= 50,]$`ODI（%）` <- "0~50"
+cli_infor_120[cli_infor_120$`ODI（%）` == 6000,]$`ODI（%）` <- NA
+```
+
+```{r}
+openxlsx::write.xlsx(cli_infor_120,
+                     "/linp/linp/IDD_classification/Formal Analysis/5 Clinical information/120_Lumbar_part1_adjust.xlsx",
+                     overwrite = F)
+```
+
+### 2 122Lumbar
+```{r}
+cli_infor_122 <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/5 Clinical information/122Lumbar/122_Lumbar_part1_20230819.xlsx")
+```
+
+```{r}
+na.place <- is.na(cli_infor_122)
+cli_infor_122[na.place] <- 0
+
+for(i in seq(1,nrow(cli_infor_122))){
+  
+  if(cli_infor_122[i,]$Age <= 30 ){cli_infor_122[i,]$Age <- "~30"}
+  else if(cli_infor_122[i,]$Age <= 40){cli_infor_122[i,]$Age <- "31~40"}
+  else if(cli_infor_122[i,]$Age <= 50){cli_infor_122[i,]$Age <- "41~50"}
+  else if(cli_infor_122[i,]$Age <= 60){cli_infor_122[i,]$Age <- "51~60"}
+  else if(cli_infor_122[i,]$Age <= 70){cli_infor_122[i,]$Age <- "61~70"}
+  else if(!is.na(cli_infor_122[i,]$Age)){cli_infor_122[i,]$Age <- "71~"}
+  
+  if(cli_infor_122[i,]$BMI < 24 ){cli_infor_122[i,]$BMI <- "~24"}
+  else if(cli_infor_122[i,]$BMI < 27){cli_infor_122[i,]$BMI <- "24~27"}
+  else if(!is.na(cli_infor_122[i,]$BMI)){cli_infor_122[i,]$BMI <- "27~"}
+  
+  if(cli_infor_122[i,]$Course.of.disease > 3 ){cli_infor_122[i,]$Course.of.disease <- "Chronic"}
+  else if(cli_infor_122[i,]$Course.of.disease > 1 ){cli_infor_122[i,]$Course.of.disease <- "Subacute"}
+  else if(!is.na(cli_infor_122[i,]$Course.of.disease)){cli_infor_122[i,]$Course.of.disease <- "Acute"}
+  
+  if(cli_infor_122[i,]$Lumbar.VAS <= 3 ){cli_infor_122[i,]$Lumbar.VAS <- "Mild"}
+  else if(cli_infor_122[i,]$Lumbar.VAS <= 6 ){cli_infor_122[i,]$Lumbar.VAS <- "Middle"}
+  else if(!is.na(cli_infor_122[i,]$Lumbar.VAS)){cli_infor_122[i,]$Lumbar.VAS <- "Serious"}
+  
+  if(cli_infor_122[i,]$Leg.VAS <= 3 ){cli_infor_122[i,]$Leg.VAS <- "Mild"}
+  else if(cli_infor_122[i,]$Leg.VAS <= 6 ){cli_infor_122[i,]$Leg.VAS <- "Middle"}
+  else if(!is.na(cli_infor_122[i,]$Leg.VAS)){cli_infor_122[i,]$Leg.VAS <- "Serious"}
+   
+  if(cli_infor_122[i,]$ODI > 50){cli_infor_122[i,]$ODI <- "50~100"}
+  else if(!is.na(cli_infor_122[i,]$ODI )){cli_infor_122[i,]$ODI <- "0~50"}
+  
+  if(cli_infor_122[i,]$Muscle.strength >= 5){cli_infor_122[i,]$Muscle.strength = "Normal"} 
+  else {cli_infor_122[i,]$Muscle.strength = "Decreased"} 
+  
+  if(cli_infor_122[i,]$Segment %in% c("T12/L1","L1/2","L3/4")){cli_infor_122[i,]$Segment = "Upper Lumbar"} 
+  else {cli_infor_122[i,]$Segment = "Lower Lumbar"} 
+}
+cli_infor_122[na.place] <- NA
+
+cli_infor_122$Course.of.disease <- factor(cli_infor_122$Course.of.disease , levels = c("Acute","Subacute","Chronic"))
+cli_infor_122$Lumbar.VAS <- factor(cli_infor_122$Lumbar.VAS , levels = c("Mild","Middle","Serious"))
+```
+
+```{r}
+openxlsx::write.xlsx(cli_infor_122,
+                     "/linp/linp/IDD_classification/Formal Analysis/5 Clinical information/122Lumbar/122_Lumbar_part1_adjust.xlsx",
+                     overwrite = T)
+```
+
+## 2 Read in data
+```{r}
+cli_infor_122 <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/5 Clinical information/122Lumbar/122_Lumbar_part1_adjust2.xlsx")
+
+count_120_Lumbar_nonoisy <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/Count_120_Lumbar_no_noisy_0.xlsx")
+Genes <- count_120_Lumbar_nonoisy$Genes
+L_bk_noB <- count_120_Lumbar_nonoisy[,-1]
+rownames(L_bk_noB) <- Genes
+```
+
+# 2 Calculation
+## 1 ka-test
+```{r}
+Group <- read_xlsx('/linp/linp/IDD_classification/Formal Analysis/3 Clustering/120Lumbar/120Lumbar_SC3_CV3500/Group=3.xlsx')
+target_data <- cli_infor_120[,c(2,4)]
+colnames(target_data) <- c('samples','target')
+Data <- full_join(Group,target_data,by="samples")
+#Data <- Data[c(1:120),]
+ka <- table(Data$cluster,Data$target) # 第一个是行变量，第二个是列变量
+dimnames(ka) <- list(Group=c(seq(1,3)),Pfirm=c(seq(2,5)))
+chisq.test(ka)
+fisher.test(ka)
+
+#install.packages("rcompanion")
+library(rcompanion)
+result <- pairwiseNominalIndependence(ka,fisher=T,gtest = F,chisq = F,method="fdr") %>%
+  as.data.frame()
+colnames(result) <- c("Comparision","p.value",'p.adj')
+result$all_ka <- all_ka[c(1:3)]
+result$parameter <- "120Lumbar_SC3_CV2500_noHB"
+
+result <- ka.test(Data,"Pfirm","120Lumbar_SC3_CV2500_noHB")
+```
+
+## 2 Wilcoxon-test
+```{r}
+Group <- read_xlsx('/linp/linp/IDD_classification/Formal Analysis/3 Clustering/120Lumbar/120Lumbar_SC3_CV2500_noHB/Group=3.xlsx')
+Weight <- cli_infor_120[,c(1,11)]
+colnames(Weight) <- c('samples','target')
+Data <- full_join(Group,Weight,by="samples")
+Data <- Data[c(1:120),]
+
+all_ka <- kruskal.test(cluster~target,Data)
+
+for(i in seq(1,max(as.numeric(unique(Data$cluster)))-1)){
+  for(j in seq(i+1,max(as.numeric(unique(Data$cluster))))){
+    Data.2 <- Data[Data$cluster %in% c(i,j),]
+    if(i+j == 3){
+      res_all <- data.frame(Comparison=c(paste(i,' : ',j,sep = "")))
+      res_all$p.value <- kruskal.test(cluster~target,Data.2)$p.value
+      res_all$p.adj <- NA
+      res_all$all_ka <- all_ka[c(3)]
+      res_all$parameter <- "120Lumbar_SC3_CV2500_noHB"
+    }
+    else{
+      res <- data.frame(Comparison=c(paste(i,' : ',j,sep = "")))
+      res$p.value <- kruskal.test(cluster~target,Data.2)$p.value
+      res$p.adj <- NA
+      res$all_ka <- all_ka[c(3)]
+      res$parameter <- "120Lumbar_SC3_CV2500_noHB"
+      res_all <- rbind(res_all,res)
+    }
+  }
+}
+
+library(rstatix)
+Data <- data.frame(Data$cluster,Data$target)
+colnames(Data) <- c('cluster','target')
+Data$cluster <- as.numeric(Data$cluster)
+Data$target <- as.numeric(Data$target)
+Data <- Data[!is.na(Data$target),]
+pairwise_wilcox_test (Data,cluster ~ target, 
+                      p.adjust.method = "bonf") # p值校正方法选择bonferroni法
+
+result.2 <- W.test(Data,"Weight","120Lumbar_SC3_CV2500_noHB")
+```
+
+## 3 Normal test
+```{r}
+N.test <- c()
+for(i in seq(25,35)){
+  N.test <- c(N.test,shapiro.test(cli_infor_122[,i])$p.value)
+}
+N.test <- data.frame(colnames(cli_infor_122)[25:35],N.test)
+colnames(N.test) <- c('Variable','Normal test')
+```
+
+## 4 t-test
+```{r}
+Group <- read_xlsx('/linp/linp/IDD_classification/Formal Analysis/3 Clustering/120Lumbar/120Lumbar_SC3_CV2500_noHB/Group=2.xlsx')
+LIV_Mean <- cli_infor_120[,c(1,28)]
+colnames(LIV_Mean) <- c('samples','target')
+Data <- full_join(Group,Weight,by="samples")
+Data <- Data[c(1:120),]
+
+all_ka <- t.test(Data$target~Data$cluster)
+```
+
+## 5 ANOVA
+```{r}
+Group <- read_xlsx('/linp/linp/IDD_classification/Formal Analysis/3 Clustering/120Lumbar/120Lumbar_SC3_CV2500_noHB/Group=4.xlsx')
+LIV_Mean <- cli_infor_120[,c(2,28)]
+colnames(LIV_Mean) <- c('samples','target')
+Data <- full_join(Group,LIV_Mean,by="samples")
+
+all_ka <- aov(formula = target ~ cluster, data = Data) %>% summary()
+all_ka[[1]][["Pr(>F)"]][1]
+```
+## 6 LSD
+```{r}
+library(agricolae)
+data(sweetpotato)
+attach(sweetpotato)
+model<-aov(yield~virus)
+#out <- LSD.test(model,"virus", p.adj="bonferroni")
+df<-df.residual(model) #自由度
+MSerror<-deviance(model)/df #均值实验的平方误差
+comparison<- LSD.test(yield,virus,df,MSerror,alpha=0.05,main="Yield of sweetpotato")
+```
+
+```{r}
+Group <- read_xlsx('/linp/linp/IDD_classification/Formal Analysis/3 Clustering/120Lumbar/120Lumbar_SC3_CV2500_noHB/Group=4.xlsx')
+LIV_Mean <- cli_infor_120[,c(2,28)]
+colnames(LIV_Mean) <- c('samples','target')
+Data <- full_join(Group,LIV_Mean,by="samples")
+
+attach(Data) #后续的分析都是该变量
+model <- aov(target ~ cluster)
+df<-df.residual(model) #自由度
+MSerror<-deviance(model)/df #均值实验的平方误差
+comparison<- LSD.test(target,cluster,df,MSerror,alpha=0.05,main="Yield of sweetpotato")
+
+ANO.LSD.test(Data,"LIV_Mean","120Lumbar_SC3_CV2500_noHB")
+```
+
+
+# 3 Circulation
+## 1 function: ka-test
+```{r}
+library(rcompanion)
+ka.test <-function(x,item,parameter){
+  ka <- table(x$cluster,x$target) # 第一个是行变量，第二个是列变量
+  if(length(table(ka==0))==1){   # 判断是否需要用fisher
+    all_ka <- chisq.test(ka)
+    method <- "pearson"
+  }
+  else{
+    all_ka <- fisher.test(ka,workspace=2e8)
+    method <- "fisher"
+  }
+  result <- pairwiseNominalIndependence(ka,fisher=T,gtest = F,chisq = F,method="fdr") %>%
+    as.data.frame()
+  result$all_ka <- all_ka$p.value
+  result$parameter <- parameter
+  result$item <- item
+  result$method <- method
+  return(result)
+}
+```
+
+## 2 function: kruskal.test(wilixcon)
+```{r}
+W.test <- function(x,item,parameter){
+  all_ka <- kruskal.test(cluster~target,x)
+
+  for(i in seq(1,max(as.numeric(unique(x$cluster)))-1)){
+    for(j in seq(i+1,max(as.numeric(unique(x$cluster))))){
+      x.2 <- x[x$cluster %in% c(i,j),]
+      if(i+j == 3){
+        res_all <- data.frame(Comparison=c(paste(i,' : ',j,sep = "")))
+        res_all$p.value <- kruskal.test(cluster~target,x.2)$p.value
+        res_all$p.adj <- NA
+        res_all$all_ka <- all_ka[c(3)]
+        res_all$parameter <- parameter
+        res_all$item <- item
+        }
+      else{
+        res <- data.frame(Comparison=c(paste(i,' : ',j,sep = "")))
+        res$p.value <- kruskal.test(cluster~target,x.2)$p.value
+        res$p.adj <- NA
+        res$all_ka <- all_ka[c(3)]
+        res$parameter <- parameter
+        res$item <- item
+        res_all <- rbind(res_all,res)
+        }
+    }
+  }
+  res_all$method <- 'kruskal.test'
+  return(res_all)
+}
+```
+
+## 3 T.test
+```{r}
+T.test <- function(x,item,parameter){
+  for(i in seq(1,max(as.numeric(unique(x$cluster)))-1)){
+    for(j in seq(i+1,max(as.numeric(unique(x$cluster))))){
+      x.2 <- x[x$cluster %in% c(i,j),]
+      if(i+j == 3){
+        res_all <- data.frame(Comparison=c(paste(i,' : ',j,sep = "")))
+        res_all$p.value <- t.test(x.2$target~x.2$cluster)$p.value
+        res_all$p.adj <- NA
+        res_all$all_ka <- all_ka[c(3)]
+        res_all$parameter <- parameter
+        res_all$item <- item
+        }
+      else{
+        res <- data.frame(Comparison=c(paste(i,' : ',j,sep = "")))
+        res$p.value <- kruskal.test(cluster~target,x.2)$p.value
+        res$p.adj <- NA
+        res$all_ka <- all_ka[c(3)]
+        res$parameter <- parameter
+        res$item <- item
+        res_all <- rbind(res_all,res)
+        }
+    }
+  }
+  return(res_all)
+}
+```
+
+## 4 ANOVA+LSD
+```{r}
+ANO.LSD.test <- function(x,item,parameter){
+  attach(x)
+  all_ka <- aov(formula = target ~ cluster) %>% summary()
+  all_ka <- all_ka[[1]][["Pr(>F)"]][1]
+  
+  if(all_ka < 0.05){
+    model <- aov(target ~ cluster)
+    df<-df.residual(model) #自由度
+    MSerror<-deviance(model)/df #均值实验的平方误差
+    comparison<- LSD.test(target,cluster,df,MSerror,alpha=0.05,main="Yield of Data")
+    
+    LSD <- comparison[["statistics"]][["LSD"]]
+    D.mean <- comparison[["groups"]][["yield"]]
+    for(i in seq(1,max(as.numeric(unique(x$cluster)))-1)){
+      for(j in seq(i+1,max(as.numeric(unique(x$cluster))))){
+        A <- abs(D.mean[i]-D.mean[j])
+        if(A > LSD){B <- 'diff'}
+        else{B <- 'same'}
+        
+        if(i+j == 3){
+          res_all <- data.frame(Comparison=c(paste(i,' : ',j,sep = "")))
+          res_all$p.value <- B
+          res_all$p.adj <- NA
+          res_all$all_ka <- all_ka
+          res_all$parameter <- parameter
+          res_all$item <- item
+          }
+        else{
+          res <- data.frame(Comparison=c(paste(i,' : ',j,sep = "")))
+          res$p.value <- B
+          res$p.adj <- NA
+          res$all_ka <- all_ka
+          res$parameter <- parameter
+          res$item <- item
+          res_all <- rbind(res_all,res)
+        }
+      }
+    }
+    res_all$method <- 'LSD'
+  }
+  else{
+    for(i in seq(1,max(as.numeric(unique(x$cluster)))-1)){
+      for(j in seq(i+1,max(as.numeric(unique(x$cluster))))){
+        if(i+j == 3){
+          res_all <- data.frame(Comparison=c(paste(i,' : ',j,sep = "")))
+          res_all$p.value <- 'same'
+          res_all$p.adj <- NA
+          res_all$all_ka <- all_ka
+          res_all$parameter <- parameter
+          res_all$item <- item
+          }
+        else{
+          res <- data.frame(Comparison=c(paste(i,' : ',j,sep = "")))
+          res$p.value <- 'same'
+          res$p.adj <- NA
+          res$all_ka <- all_ka
+          res$parameter <- parameter
+          res$item <- item
+          res_all <- rbind(res_all,res)
+        }
+      }
+    }
+    res_all$method <- 'ANOVA'
+  }
+  return(res_all)
+}
+```
+
+## 5 Analysis
+```{r}
+path <- "/linp/linp/IDD_classification/Formal Analysis/3 Clustering/122Lumbar/Threshold=5/122Lumbar_SC3_CV3500/Group="
+cli_infor_122 <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/5 Clinical information/122Lumbar/122_Lumbar_part1_adjust2.xlsx")
+parameter <- '122Lumbar_SC3_CV3500'
+```
+
+```{r}
+result_all <- data.frame(Comparison=c(),p.value=c(),p.adj=c(),all_ka=c(),parameter=c())
+
+for(cluster_no in seq(4,4)){
+  Group <- read.xlsx(paste(path,cluster_no,'.xlsx',sep = ""))
+  for(cli_no in seq(3,25)){
+    target_data <- cli_infor_122[,c(1,cli_no)]
+    colnames(target_data) <- c('samples','target')
+    Data <- full_join(Group,target_data,by="samples")
+    Data <- Data[!is.na(Data$target),]
+    res <- ka.test(Data,colnames(cli_infor_122)[cli_no],parameter)
+    result_all <- rbind(result_all,res)
+  }
+  colnames(result_all) <- c("Comparison","p.value","p.adj","all_ka","parameter","item","method" )
+  # for(cli_no in seq(26,46)){
+  #   target_data <- cli_infor_122[,c(1,cli_no)]
+  #   colnames(target_data) <- c('samples','target')
+  #   Data <- full_join(Group,target_data,by="samples")
+  #   Data <- Data[!is.na(Data$target),]
+  #   normal_test <- shapiro.test(Data$target)$p.value
+  #   if(normal_test < 0.05){res <- W.test(Data,colnames(cli_infor_122)[cli_no],parameter)}
+  #   else{res <- ANO.LSD.test(Data,colnames(cli_infor_122)[cli_no],parameter)}
+  #   result_all <- rbind(result_all,res)
+  #}
+}
+```
+
+```{r}
+openxlsx::write.xlsx(result_all,
+                     '/linp/linp/IDD_classification/Formal Analysis/5 Clinical information/122Lumbar/Threshold=5/122Lumbar_SC3_CV3500/Clinical_stastical_val_n=3(SC3_CV3500).xlsx',
+                     overwrite = F)
+```
+
+

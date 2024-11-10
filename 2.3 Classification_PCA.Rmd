@@ -1,0 +1,69 @@
+# 1 Preparation
+## 1.1 Library
+```{r}
+library(NMF)
+#library(doMPI) 
+```
+## 1.2 Bulk data
+```{r}
+library(openxlsx)
+library(readxl)
+
+Bulk_data = read_xlsx("/linp/linp/IDD_classification/Samples_matrix/105samples.xlsx")
+genes <- Bulk_data$Genes
+```
+
+# 3 PCA
+## 3.1 Analysis
+```{r}
+pca1 <- prcomp(t_scale[ , which(apply(t_scale, 2, var) != 0)],
+               center = TRUE,
+               scale. = FALSE)
+df1 <- pca1$x # 提取PC score
+df1 <- as.data.frame(df1) # 注意：如果不转成数据框形式后续绘图时会报错
+
+## This protocol is more faster.
+```
+
+## 3.2 Data saving
+```{r}
+library(readxl)
+openxlsx::write.xlsx(df,file="/linp/linp/IDD_classification/Samples_matrix/PCA-0406-0413.xlsx")
+write.table (Proportion_of_Variance,
+             file="/linp/linp/IDD_classification/Samples_matrix/PCA-0406-0413-Variance.txt",
+             sep ="", row.names =TRUE, col.names =TRUE, quote =TRUE)
+```
+## 3.3 Drawing 
+```{r}
+summ1 <- summary(pca1)
+xlab1 <- paste0("PC1(",round(summ1$importance[2,1]*100,2),"%)")
+ylab1 <- paste0("PC2(",round(summ1$importance[2,2]*100,2),"%)")
+
+ggplot(data = df1,aes(x = PC1,y = PC2,
+                      color = as.character(
+                        results[[8]][["consensusClass"]]
+                      )
+                      ))+
+  geom_point(size = 2)+
+  labs(x = xlab1,y = ylab1,color = "Condition",title = "PCA Scores Plot")+
+  guides(fill = "none")+  
+  stat_ellipse(aes(fill=as.character(                  #加置信椭圆
+                        results[[8]][["consensusClass"]]
+                      )),
+               type = "norm", 
+               geom ="polygon",
+               alpha=0.2)+
+  theme_bw() + #去除背景色
+  theme(plot.title = element_text(size=12,hjust=0.5))+  #标题居中
+  theme(panel.grid =element_blank()) #去除网格线
+  # guides(fill = "none")+
+  # theme_bw()+
+  # scale_fill_manual(values = c("purple","orange","pink"))+
+  # scale_colour_manual(values = c("purple","orange","pink"))
+  # theme(plot.title = element_text(hjust = 0.5,size = 15),
+  #       axis.text = element_text(size = 11),axis.title = element_text(size = 13),
+  #       legend.text = element_text(size = 11),legend.title = element_text(size = 13),
+  #       plot.margin = unit(c(0.4,0.4,0.4,0.4),'cm'))
+```
+
+

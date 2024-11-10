@@ -1,0 +1,1315 @@
+
+# 1 Data
+```{r}
+library(openxlsx)
+library(readxl)
+library(pheatmap)
+library(dplyr)
+
+Lasso_clinical <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Lasso_clinical/20231231/Lasso_Coef-20231231.xlsx")
+
+Sample <- Lasso_clinical$Sample
+L_bk_noB <- Lasso_clinical[,-36]
+rownames(L_bk_noB) <- Sample
+```
+
+## 1 Dummy Variable
+```{r}
+L_bk_noB$IVD_Herniation_morphology <- factor(L_bk_noB$IVD_Herniation_morphology)
+#L_bk_noB$Modic_change <- L_bk_noB$Modic_change+1 # 1,2,3对应原本0,1,2
+L_bk_noB$Modic_change <- factor(L_bk_noB$Modic_change,levels = c(0,1,2))
+model_mat1 <-model.matrix(~ Modic_change -1,L_bk_noB)
+model_mat2 <-model.matrix(~ IVD_Herniation_morphology -1,L_bk_noB)
+L_bk_noB <- L_bk_noB[,-c(29,30)]
+
+L_bk_noB <- cbind(L_bk_noB,model_mat1,model_mat2)
+L_bk_noB$Sample <- rownames(L_bk_noB)
+
+write.xlsx(L_bk_noB,
+           "/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Lasso_clinical/20231231/Lasso_Coef-20231231.xlsx",
+           overwrite = F)
+```
+
+## 2 Group
+```{r}
+bk_t <- L_bk_noB #%>% t() %>% as.data.frame()
+
+# genelist <- c("MMP9","C1QTNF6") #"ADAMTS5","FOXO1","DLX6","THBS1"
+# bk_t <- bk_t[,colnames(bk_t) %in% genelist]
+
+group <- read_xlsx('/linp/linp/IDD_classification/Formal Analysis/3 Clustering/122Lumbar/New_5/122Lumbar_SC3_CV8000/Group=4.xlsx')
+bk_t$group <- group$cluster
+#bk_t <- bk_t[-17]
+# bk_t[bk_t$group != 4,]$group <- "rest"
+# bk_t[bk_t$group == 4,]$group <- "target"
+```
+
+```{r}
+library(glmnet)
+set.seed(1234)
+#genelist <- c("DSP","VCAN","ACAN","SEMA3A","SOX2") #"ADAMTS5","FOXO1","DLX6","THBS1"
+bk_t[is.na(bk_t)] <- 0
+x <- as.matrix(bk_t[,-ncol(bk_t)])#[,colnames(bk_t) %in% genelist]
+y <- as.matrix(bk_t$group)
+```
+
+# 2 glmnet()建模
+```{r}
+library(grid)
+alpha1_fit <- glmnet(x, y, alpha = 1,nlambda = 100, 
+                     family = "multinomial", type.multinomial = "grouped")
+
+# pdf("/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Lasso_clinical/20231231/glmnet_C1-C4.pdf")
+plot(alpha1_fit, xvar = "lambda", label = TRUE) # Coefficient_C
+# dev.off()
+```
+
+# 3 Cross-validation
+```{R}
+alpha1.fit.cv <- cv.glmnet(x, y, type.measure = "class", 
+                           alpha = 1, family = "multinomial",
+                           type.multinomial = "grouped",parallel = TRUE)
+# 多分类，family用multinomial，生存用cox
+# 参数见 https://mp.weixin.qq.com/s/kSrr6regfAtX4Bw6gSvmgw
+print(alpha1.fit.cv)
+# pdf("/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Lasso_clinical/20231231/CV_C1-C4.2.pdf")
+plot(alpha1.fit.cv) # Cross_C
+# dev.off()
+```
+
+```{r}
+library(Matrix)
+feature_all <- as.data.frame(coef(alpha1.fit.cv, s = alpha1.fit.cv$lambda.min)) # lambda.min 或者 lambda.1se
+
+Coef <- coef(alpha1.fit.cv, s = alpha1.fit.cv$lambda.min)
+feature_all <- data.frame(C1 = as.matrix(Coef$`1`),
+                          C2 = as.matrix(Coef$`2`),
+                          C3 = as.matrix(Coef$`3`),
+                          C4 = as.matrix(Coef$`4`))
+feature_opt <- feature_all[rowSums(feature_all) != 0 ,]
+colnames(feature_opt) <- c("C1","C2","C3","C4")
+rownames(feature_opt)[-1]
+#C1 <- rownames(feature_opt)[-1]
+```
+
+```{r}
+feature_opt$Terms <-rownames(feature_opt)
+write.xlsx(feature_opt,
+           "/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Lasso_clinical/20231231/CV_Coef.xlsx",
+           overwrite = F)
+```
+
+```{r}
+# For 1 group
+feature_all <- as.data.frame(as.matrix(coef(alpha1.fit.cv, s = alpha1.fit.cv$lambda.min))) # lambda.min 或者 lambda.1se
+colnames(feature_all) <- "coff"
+feature_opt <-  feature_all %>% filter(abs(coff) > 0)
+rownames(feature_opt)[-1]
+#C1 <- rownames(feature_opt)[-1]
+```
+
+# 4 Circulation
+```{r}
+feature_all <- as.data.frame(as.matrix(coef(alpha1.fit.cv, s = alpha1.fit.cv$lambda.min))) # lambda.min 或者 lambda.1se
+colnames(feature_all) <- "coff"
+feature_min <-  feature_all %>% filter(abs(coff) > 0) 
+feature_min$min_name <- rownames(feature_min)
+
+feature_all <- as.data.frame(as.matrix(coef(alpha1.fit.cv, s = alpha1.fit.cv$lambda.1se))) # lambda.min 或者 lambda.1se
+colnames(feature_all) <- "coff"
+feature_1se <-  feature_all %>% filter(abs(coff) > 0)
+feature_1se$se_name <- rownames(feature_1se)
+feature_1se[(nrow(feature_1se)+1):nrow(feature_min),] <- NA
+
+Data <- data.frame(min=feature_min,min.1se=feature_1se)
+write.xlsx(Data,
+           "/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Lasso_clinical/Features_C4.xlsx",
+           overwrite = F)
+```
+
+
+# 5 Moduling
+## 1 Data
+```{r}
+Lasso_clinical <- read_xlsx("/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Lasso_clinical/20231231/Lasso_Coef-20231231.xlsx")
+Sample <- Lasso_clinical$Sample
+
+CV_Coef <- read_xlsx("/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Lasso_clinical/20231231/CV_Coef.xlsx")
+Terms <- c(CV_Coef$Terms[c(-10)], #"BMI","Sex",-12,-8,-10
+           "IVD_Herniation_morphology2","Modic_change1","Modic_change2")
+
+Moduling_data <- Lasso_clinical[,colnames(Lasso_clinical) %in% Terms]
+rownames(Moduling_data) <- Sample
+#Moduling_data <- as.double(Moduling_data)
+
+group <- read_xlsx('/linp/linp/IDD_classification/Formal Analysis/3 Clustering/122Lumbar/New_5/122Lumbar_SC3_CV8000/Group=4.xlsx')
+Moduling_data$group <- factor(group$cluster)
+
+bk_t <- Moduling_data
+```
+
+## 2 Random Sampling
+```{r}
+library(randomForest)
+set.seed(1)
+trainlist<-sample(nrow(bk_t),7/10*nrow(bk_t))#将数据集划分为7：3
+train_data<-bk_t[trainlist,]
+test_data<-bk_t[-trainlist,]
+
+train_data1 <- train_data
+test_data1 <- test_data
+```
+
+## 3 RandomForest
+### 1 Adjust Coefficiency
+#### 1 mtry
+```{r}
+library(randomForest)
+err <- as.numeric()
+for(i in 1:(ncol(train_data)-1)){
+  set.seed(1234)
+  mtry_n <- randomForest(group~. ,
+                         data = train_data,
+                         #ntree =1000,
+                         mtry=i, 
+                         importance=TRUE ,
+                         proximity=TRUE)
+  err <- append(err,mean(mtry_n$err.rate))
+}
+#print(err)
+mtry <- which.min(err)
+mtry # 20
+err[mtry] # 0.3232427
+```
+
+#### 2 ntree
+```{r}
+library(caret)
+# set.seed(1234)
+# ntree_fit <- randomForest(group~. ,
+#                          data = train_data,
+#                          ntree =1000,
+#                          mtry=mtry)
+# plot(ntree_fit)
+set.seed(1234)
+#bk_t$group <- as.factor(bk_t$group)
+fold <- createFolds(y = bk_t$group, k=10)
+right <- as.numeric()
+for (i in seq(500,2000,50)){
+  accuracy <- as.numeric()
+  for(j in 1:10){
+    fold_test <- bk_t[fold[[j]],]
+    fold_train <- bk_t[-fold[[j]],]
+    set.seed(1234)
+    fold_fit <- randomForest(group~. ,data=fold_train,mtry=mtry,
+                             ntree=i)
+    fold_pred <- predict(fold_fit,fold_test)
+    confumat <- as.matrix(table(fold_pred,fold_test$group))
+    acc <- sum(diag(confumat))/sum(confumat)
+    accuracy = append(accuracy,acc)
+  }
+  right <- append(right,mean(accuracy))
+}
+print(max(right))
+print(which.max(right)*50+500)
+```
+### 2 RF analysis
+```{r}
+set.seed(1234)
+train_data$group = as.factor(train_data$group)
+test_data$group = as.factor(test_data$group)
+wine_randomforest <- randomForest(group~. ,
+                                  data = train_data,
+                                  #x = train_data,
+                                  ntree =550,
+                                  mtry=20, 
+                                  importance=TRUE ,
+                                  proximity=TRUE)
+wine_randomforest$importance
+# pdf("/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Lasso_clinical/20240401/RF/wine_randomforest.pdf",
+#     width = 10, height = 6)
+plot(wine_randomforest)
+# dev.off()
+```
+### 3 Prediction
+```{r}
+set.seed(1234)
+pre_ran <- predict(wine_randomforest,
+                   newdata=test_data,
+                   type = "prob",  # type = "prob" !!!非常重要!是ROC有多点的关键。
+                   probability = T)
+pre_ran <- as.data.frame(pre_ran)
+RF_pre <- as.data.frame(pre_ran)
+```
+
+### 4 ROC & PR
+```{r}
+true_label <- data.frame(C1_true=rep(0,nrow(test_data)),
+                         C2_true=rep(0,nrow(test_data)),
+                         C3_true=rep(0,nrow(test_data)),
+                         C4_true=rep(0,nrow(test_data)))
+G <- as.numeric(test_data$group)
+for(i in seq(1,nrow(test_data))){
+  true_label[i,G[i]] <- 1
+} 
+colnames(pre_ran) <- c("C1_pred_RF","C2_pred_RF","C3_pred_RF","C4_pred_RF")
+```
+
+```{r}
+require(multiROC)
+final_df <- cbind(true_label,pre_ran)
+#data(test_data) #会改变test_data的数据内容
+roc_res <- multi_roc(final_df, force_diag=T)
+pr_res <- multi_pr(final_df, force_diag=T)
+ 
+plot_roc_df <- plot_roc_data(roc_res)
+plot_pr_df <- plot_pr_data(pr_res)
+
+G <- as.numeric(test_data$group)
+for(i in seq(1,nrow(test_data))){
+  G[i]<-c("C1_pred_RF","C2_pred_RF","C3_pred_RF","C4_pred_RF")[as.integer(G[i])]
+} 
+G <- factor(G)
+multiclass.roc(G,final_df[,5:8])
+# write.xlsx(plot_pr_df,
+#            "/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Lasso_clinical/20240401/RF/plot_pr_df_RF_clinical.xlsx",
+#            overwrite = T)
+```
+
+```{r}
+require(ggplot2)
+ggplot(plot_roc_df, aes(x = 1-Specificity, y=Sensitivity)) +
+  geom_path(aes(color = Group), size=1.5) + #linetype=Method
+  geom_segment(aes(x = 0, y = 0, xend = 1, yend = 1), 
+               colour='grey', linetype = 'dotdash') +
+  theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5), 
+        legend.justification=c(1, 0), legend.position=c(.95, .05),
+        legend.title=element_blank(), 
+        legend.background = element_rect(fill=NULL, size=0.5, 
+                                         linetype="solid", colour ="black"))
+```
+
+```{r}
+require(ggplot2)
+ggplot(plot_pr_df, aes(x = Recall, y=Precision)) +
+  geom_path(aes(color = Group), size=1.5) + #linetype=Method
+  geom_segment(aes(x = 0, y = 1, xend = 1, yend = 0), 
+               colour='grey', linetype = 'dotdash') +
+  theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5), 
+        legend.justification=c(1, 0), legend.position=c(.17, .05),
+        legend.title=element_blank(), 
+        legend.background = element_rect(fill=NULL, size=0.5, 
+                                         linetype="solid", colour ="black"))
+```
+
+```{r}
+ggsave("/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Lasso_clinical/20240401/RF/PR_plot_clinical.pdf",
+         plot = last_plot(),
+       width =6, height =5,dpi = 300)
+```
+
+### 5 Training ROC & PR
+```{r}
+true_label <- data.frame(C1_true=rep(0,nrow(train_data)),
+                         C2_true=rep(0,nrow(train_data)),
+                         C3_true=rep(0,nrow(train_data)),
+                         C4_true=rep(0,nrow(train_data)))
+
+set.seed(1234)
+pre_train <- predict(wine_randomforest,
+                   newdata=train_data,
+                   type = "prob",  # type = "prob" !!!非常重要!是ROC有多点的关键。
+                   probability = T)
+pre_train  <- as.data.frame(pre_train)
+
+#pre_train <- data.frame(wine_randomforest[["votes"]])
+G <- as.numeric(train_data$group)
+for(i in seq(1,nrow(train_data))){
+  true_label[i,G[i]] <- 1
+} 
+colnames(pre_train) <- c("C1_pred_RF","C2_pred_RF","C3_pred_RF","C4_pred_RF")
+```
+
+```{r}
+require(multiROC)
+final_df_train <- cbind(true_label,pre_train)
+#data(train_data)
+roc_train <- multi_roc(final_df_train, force_diag=T)
+pr_train <- multi_pr(final_df_train, force_diag=T)
+ 
+plot_roc_df_train <- plot_roc_data(roc_train)
+plot_pr_df_train <- plot_pr_data(pr_train)
+
+# write.xlsx(plot_roc_df_train,
+#            "/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Lasso_clinical/20240123/RF/plot_roc_df_RF_train_clinical_pre.xlsx",
+#            overwrite = F)
+```
+
+```{r}
+require(ggplot2)
+ggplot(plot_roc_df_train, aes(x = 1-Specificity, y=Sensitivity)) +
+  geom_path(aes(color = Group), size=1.5) + #linetype=Method
+  geom_segment(aes(x = 0, y = 0, xend = 1, yend = 1), 
+               colour='grey', linetype = 'dotdash') +
+  theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5), 
+        legend.justification=c(1, 0), legend.position=c(.95, .05),
+        legend.title=element_blank(), 
+        legend.background = element_rect(fill=NULL, size=0.5, 
+                                         linetype="solid", colour ="black"))
+```
+
+```{r}
+require(ggplot2)
+ggplot(plot_pr_df_train, aes(x = Recall, y=Precision)) +
+  geom_path(aes(color = Group), size=1.5) + #linetype=Method
+  geom_segment(aes(x = 0, y = 1, xend = 1, yend = 0), 
+               colour='grey', linetype = 'dotdash') +
+  theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5), 
+        legend.justification=c(1, 0), legend.position=c(.17, .05),
+        legend.title=element_blank(), 
+        legend.background = element_rect(fill=NULL, size=0.5, 
+                                         linetype="solid", colour ="black"))
+```
+
+```{r}
+ggsave("/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Lasso_clinical/20240123/RF/PR_train_plot_clinical.pdf",
+         plot = last_plot(),
+       width =6, height =5,dpi = 300)
+```
+
+### 6 C-index
+```{r}
+library(Hmisc)
+#train_pro <- data.frame(wine_randomforest[["votes"]])
+train_pro <- data.frame(pre_train)
+for(i in seq(1,nrow(train_pro))){
+  train_pro$group[i] <-  which.max(train_pro[i,1:4])
+}
+
+test_pro <- pre_ran
+for(i in seq(1,nrow(test_pro))){
+  test_pro$group[i] <-  which.max(test_pro[i,1:4])
+}
+
+Cindex_train <- rcorrcens(train_data$group~train_pro$group)
+Cindex_test <- rcorrcens(test_data$group~test_pro$group)
+Cindex_train
+Cindex_test
+```
+
+## 4 SVM
+### 1 Adjust Coefficiency
+```{r}
+library(ggplot2)
+library(e1071)
+set.seed(1234)
+Adjust_Coef <- tune(svm,group~., data = train_data, kernel = "radial",
+                    ranges = list(gamma=seq(0,10,0.1),cost=2^(0:5)))
+summary(Adjust_Coef)
+svm_best <- Adjust_Coef$best.model
+```
+
+### 2 Prediction
+```{r}
+library(e1071)
+train_data <- train_data1
+test_data <- test_data1
+
+set.seed(1234)
+svc_model <- svm(group~., data= train_data, kernel="radial",gamma=0.1,cost=4,probability=TRUE)
+svc_predict <- predict(svc_model,
+                       newdata=test_data,
+                       type = "prob", # type = "prob" !!!非常重要!是ROC有多点的关键。
+                       probability = TRUE)
+#colnames(svc_predict)
+svc_predict <- as.data.frame(attr(svc_predict,"probabilities"))
+```
+
+```{r}
+table <- table(train_data$group,svc_model[["fitted"]],dnn=c("Real","Prediction"))
+table  <- caret::confusionMatrix(as.factor())
+table
+```
+
+```{r}
+svc_predict <- svc_predict %>% t() 
+svc_predict <- svc_predict[order(rownames(svc_predict)),] %>% t()
+```
+
+### 3 ROC & PR
+```{r}
+true_label <- data.frame(C1_true=rep(0,nrow(test_data)),
+                         C2_true=rep(0,nrow(test_data)),
+                         C3_true=rep(0,nrow(test_data)),
+                         C4_true=rep(0,nrow(test_data)))
+G <- as.numeric(test_data$group)
+for(i in seq(1,nrow(test_data))){
+  true_label[i,G[i]] <- 1
+} 
+colnames(svc_predict) <- c("C1_pred_SVM","C2_pred_SVM","C3_pred_SVM","C4_pred_SVM")
+```
+
+```{r}
+require(multiROC)
+final_df <- cbind(true_label,svc_predict)
+#data(test_data)
+roc_res <- multi_roc(final_df, force_diag=T)
+pr_res <- multi_pr(final_df, force_diag=T)
+ 
+plot_roc_df <- plot_roc_data(roc_res)
+plot_pr_df <- plot_pr_data(pr_res)
+
+# write.xlsx(plot_pr_df,
+#            "/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Lasso_clinical/20240401/SVM/plot_pr_df_clinical.xlsx",
+#            overwrite = T)
+```
+
+```{r}
+require(ggplot2)
+ggplot(plot_roc_df, aes(x = 1-Specificity, y=Sensitivity)) +
+  geom_path(aes(color = Group), size=1.5) + #linetype=Method
+  geom_segment(aes(x = 0, y = 0, xend = 1, yend = 1), 
+               colour='grey', linetype = 'dotdash') +
+  theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5), 
+        legend.justification=c(1, 0), legend.position=c(.95, .05),
+        legend.title=element_blank(), 
+        legend.background = element_rect(fill=NULL, size=0.5, 
+                                         linetype="solid", colour ="black"))
+```
+
+```{r}
+require(ggplot2)
+ggplot(plot_pr_df, aes(x = Recall, y=Precision)) +
+  geom_path(aes(color = Group), size=1.5) + #linetype=Method
+  geom_segment(aes(x = 0, y = 1, xend = 1, yend = 0), 
+               colour='grey', linetype = 'dotdash') +
+  theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5), 
+        legend.justification=c(1, 0), legend.position=c(.17, .05),
+        legend.title=element_blank(), 
+        legend.background = element_rect(fill=NULL, size=0.5, 
+                                         linetype="solid", colour ="black"))
+```
+
+```{r}
+ggsave("/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Lasso_clinical/20240401/SVM/PR_plot_SVM_clinical.pdf",
+         plot = last_plot(),
+       width =6, height =5,dpi = 300)
+```
+
+### 4 Training ROC & PR
+```{r}
+true_label <- data.frame(C1_true=rep(0,nrow(train_data)),
+                         C2_true=rep(0,nrow(train_data)),
+                         C3_true=rep(0,nrow(train_data)),
+                         C4_true=rep(0,nrow(train_data)))
+set.seed(1234)
+svc_train <- predict(svc_model,
+                       newdata=train_data,
+                       type = "prob", # type = "prob" !!!非常重要!是ROC有多点的关键。
+                       probability = TRUE)  
+pre_train <- as.data.frame(attr(svc_train,"probabilities"))
+
+pre_train <- pre_train %>% t() 
+pre_train <- pre_train[order(rownames(pre_train)),] %>% t()
+
+G <- as.numeric(train_data$group)
+for(i in seq(1,nrow(train_data))){
+  true_label[i,G[i]] <- 1
+} 
+colnames(pre_train) <- c("C1_pred_SVM","C2_pred_SVM","C3_pred_SVM","C4_pred_SVM")
+```
+
+```{r}
+require(multiROC)
+final_df_train <- cbind(true_label,pre_train)
+#data(train_data)
+roc_train <- multi_roc(final_df_train, force_diag=T)
+pr_train <- multi_pr(final_df_train, force_diag=T)
+
+plot_roc_df_train <- plot_roc_data(roc_train)
+plot_pr_df_train <- plot_pr_data(pr_train)
+
+# write.xlsx(plot_roc_df_train,
+#            "/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Lasso_clinical/20240123/SVM/plot_roc_df_SVM_train_clinical.xlsx",
+#            overwrite = F)
+```
+
+```{r}
+require(ggplot2)
+ggplot(plot_roc_df_train, aes(x = 1-Specificity, y=Sensitivity)) +
+  geom_path(aes(color = Group), size=1.5) + #linetype=Method
+  geom_segment(aes(x = 0, y = 0, xend = 1, yend = 1), 
+               colour='grey', linetype = 'dotdash') +
+  theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5), 
+        legend.justification=c(1, 0), legend.position=c(.95, .05),
+        legend.title=element_blank(), 
+        legend.background = element_rect(fill=NULL, size=0.5, 
+                                         linetype="solid", colour ="black"))
+```
+
+```{r}
+require(ggplot2)
+ggplot(plot_pr_df_train, aes(x = Recall, y=Precision)) +
+  geom_path(aes(color = Group), size=1.5) + #linetype=Method
+  geom_segment(aes(x = 0, y = 1, xend = 1, yend = 0), 
+               colour='grey', linetype = 'dotdash') +
+  theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5), 
+        legend.justification=c(1, 0), legend.position=c(.17, .05),
+        legend.title=element_blank(), 
+        legend.background = element_rect(fill=NULL, size=0.5, 
+                                         linetype="solid", colour ="black"))
+```
+
+```{r}
+ggsave("/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Lasso_clinical/20240123/SVM/PR_train_plot_clinical.pdf",
+         plot = last_plot(),
+       width =6, height =5,dpi = 300)
+```
+
+### 5 C-index
+```{r}
+library(Hmisc)
+train_pro <- data.frame(pre_train)
+for(i in seq(1,nrow(train_pro))){
+  train_pro$group[i] <-  which.max(train_pro[i,1:4])
+}
+
+test_pro <- data.frame(svc_predict)
+for(i in seq(1,nrow(test_pro))){
+  test_pro$group[i] <-  which.max(test_pro[i,1:4])
+}
+
+Cindex_train <- rcorrcens(train_data$group~train_pro$group)
+Cindex_test <- rcorrcens(test_data$group~test_pro$group)
+Cindex_train
+Cindex_test
+```
+
+## 5 XGboost
+### 1 Example
+```{r}
+data(agaricus.train, package='xgboost')
+bst <- xgboost(data = agaricus.train$data, label = agaricus.train$label, max_depth = 2,
+               eta = 1, nthread = 2, nrounds = 2, objective = "binary:logistic")
+```
+
+### 2 Data preparation
+```{r}
+library(xgboost)
+library(Matrix)
+
+train_data <- train_data1
+test_data <- test_data1
+
+train_matrix <- sparse.model.matrix(group ~ .-1, data = train_data)
+test_matrix <- sparse.model.matrix(group ~ .-1, data = test_data)
+train_label <- as.numeric(train_data$group)-1
+test_label <-  as.numeric(test_data$group)-1
+train_fin <- list(data=train_matrix,label=train_label) 
+test_fin <- list(data=test_matrix,label=test_label) 
+
+dtrain <- xgb.DMatrix(data = train_fin$data, label = train_fin$label) 
+dtest <- xgb.DMatrix(data = test_fin$data, label = test_fin$label)
+```
+
+### 3 Adjust Coefficiency
+```{r}
+set.seed(1234)
+library(caret)
+library(pROC)
+
+# 设置拟合条件
+fitControl <- trainControl(method = "cv", 
+                           number = 10,
+                           verboseIter = FALSE,
+                           search = "random" # 随机搜索，也可设定 "grid" 网格搜索
+                           )
+# XGBoost 调参
+caret_xgb <- train(group~., 
+                   data = train_data, # dataframe 格式
+                   method="xgbTree",# xgbLinear
+                   trainControl=fitControl
+                   )
+caret_xgb$bestTune
+```
+
+### 4 Analysis & Prediction
+```{r}
+xgb <- xgboost(data = train_fin$data, label = train_fin$label,
+               max_depth=1, eta=0.4, nround=50, gamma=0, colsample_bytree = 0.8, min_child_weight=1, subsample =0.5,
+               objective='multi:softprob',num_class=4)
+
+set.seed(1234)
+xbg_pred <- predict(xgb,
+                    newdata=dtest,
+                    type = "prob",  # type = "prob" !!!非常重要!是ROC有多点的关键。
+                    probability = T)
+
+xbg_pred_frame <- data.frame(C1=xbg_pred[seq(1,148,4)],
+                             C2=xbg_pred[seq(2,148,4)],
+                             C3=xbg_pred[seq(3,148,4)],
+                             C4=xbg_pred[seq(4,148,4)])
+```
+```{r}
+xbg_pred <- predict(xgb,
+                    newdata=dtrain,
+                    type = "prob",  # type = "prob" !!!非常重要!是ROC有多点的关键。
+                    probability = T)
+
+xbg_pred_frame <- data.frame(C1=xbg_pred[seq(1,340,4)],
+                             C2=xbg_pred[seq(2,340,4)],
+                             C3=xbg_pred[seq(3,340,4)],
+                             C4=xbg_pred[seq(4,340,4)])
+```
+### 5 ROC & PR
+```{r}
+true_label <- data.frame(C1_true=rep(0,nrow(test_data)),
+                         C2_true=rep(0,nrow(test_data)),
+                         C3_true=rep(0,nrow(test_data)),
+                         C4_true=rep(0,nrow(test_data)))
+G <- as.numeric(test_data$group)
+for(i in seq(1,nrow(test_data))){
+  true_label[i,G[i]] <- 1
+} 
+colnames(xbg_pred_frame) <- c("C1_pred_XGboost","C2_pred_XGboost","C3_pred_XGboost","C4_pred_XGboost")
+```
+
+```{r}
+require(multiROC)
+final_df <- cbind(true_label,xbg_pred_frame)
+#data(test_data)
+roc_res <- multi_roc(final_df, force_diag=T)
+pr_res <- multi_pr(final_df, force_diag=T)
+ 
+plot_roc_df <- plot_roc_data(roc_res)
+plot_pr_df <- plot_pr_data(pr_res)
+
+# write.xlsx(plot_pr_df,
+#            "/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Lasso_clinical/20240401/XGboost/plot_pr_df_XG_clinical.xlsx",
+#            overwrite = T)
+```
+
+```{r}
+require(ggplot2)
+ggplot(plot_roc_df, aes(x = 1-Specificity, y=Sensitivity)) +
+  geom_path(aes(color = Group), size=1.5) + #linetype=Method
+  geom_segment(aes(x = 0, y = 0, xend = 1, yend = 1), 
+               colour='grey', linetype = 'dotdash') +
+  theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5), 
+        legend.justification=c(1, 0), legend.position=c(.95, .05),
+        legend.title=element_blank(), 
+        legend.background = element_rect(fill=NULL, size=0.5, 
+                                         linetype="solid", colour ="black"))
+```
+
+```{r}
+require(ggplot2)
+ggplot(plot_pr_df, aes(x = Recall, y=Precision)) +
+  geom_path(aes(color = Group), size=1.5) + #linetype=Method
+  geom_segment(aes(x = 0, y = 1, xend = 1, yend = 0), 
+               colour='grey', linetype = 'dotdash') +
+  theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5), 
+        legend.justification=c(1, 0), legend.position=c(.17, .05),
+        legend.title=element_blank(), 
+        legend.background = element_rect(fill=NULL, size=0.5, 
+                                         linetype="solid", colour ="black"))
+```
+
+```{r}
+ggsave("/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Lasso_clinical/20240401/XGboost/PR_plot_XG_clinical.pdf",
+         plot = last_plot(),
+       width =6, height =5,dpi = 300)
+```
+
+### 6 Training ROC & PR
+```{r}
+true_label <- data.frame(C1_true=rep(0,nrow(train_data)),
+                         C2_true=rep(0,nrow(train_data)),
+                         C3_true=rep(0,nrow(train_data)),
+                         C4_true=rep(0,nrow(train_data)))
+set.seed(1234)
+xbg_pred <- predict(xgb,
+                    newdata=dtrain,
+                    type = "prob",  # type = "prob" !!!非常重要!是ROC有多点的关键。
+                    probability = T)
+
+pre_train <- data.frame(C1=xbg_pred[seq(1,340,4)],
+                             C2=xbg_pred[seq(2,340,4)],
+                             C3=xbg_pred[seq(3,340,4)],
+                             C4=xbg_pred[seq(4,340,4)])
+
+G <- as.numeric(train_data$group)
+for(i in seq(1,nrow(train_data))){
+  true_label[i,G[i]] <- 1
+} 
+colnames(pre_train) <- c("C1_pred_XGboost","C2_pred_XGboost","C3_pred_XGboost","C4_pred_XGboost")
+```
+
+```{r}
+require(multiROC)
+final_df_train <- cbind(true_label,pre_train)
+#data(train_data)
+roc_train <- multi_roc(final_df_train, force_diag=T)
+pr_train <- multi_pr(final_df_train, force_diag=T)
+
+plot_roc_df_train <- plot_roc_data(roc_train)
+plot_pr_df_train <- plot_pr_data(pr_train)
+
+# write.xlsx(plot_pr_df_train,
+#            "/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Lasso_clinical/20240123/XGboost/plot_pr_df_XG_train_clinical.xlsx",
+#            overwrite = F)
+```
+
+```{r}
+require(ggplot2)
+ggplot(plot_roc_df_train, aes(x = 1-Specificity, y=Sensitivity)) +
+  geom_path(aes(color = Group), size=1.5) + #linetype=Method
+  geom_segment(aes(x = 0, y = 0, xend = 1, yend = 1), 
+               colour='grey', linetype = 'dotdash') +
+  theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5), 
+        legend.justification=c(1, 0), legend.position=c(.95, .05),
+        legend.title=element_blank(), 
+        legend.background = element_rect(fill=NULL, size=0.5, 
+                                         linetype="solid", colour ="black"))
+```
+
+```{r}
+require(ggplot2)
+ggplot(plot_pr_df_train, aes(x = Recall, y=Precision)) +
+  geom_path(aes(color = Group), size=1.5) + #linetype=Method
+  geom_segment(aes(x = 0, y = 1, xend = 1, yend = 0), 
+               colour='grey', linetype = 'dotdash') +
+  theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5), 
+        legend.justification=c(1, 0), legend.position=c(.17, .05),
+        legend.title=element_blank(), 
+        legend.background = element_rect(fill=NULL, size=0.5, 
+                                         linetype="solid", colour ="black"))
+```
+
+```{r}
+ggsave("/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Lasso_clinical/20240123/XGboost/PR_train_plot_clinical.pdf",
+         plot = last_plot(),
+       width =6, height =5,dpi = 300)
+```
+
+### 7 C-index
+```{r}
+library(Hmisc)
+train_pro <- data.frame(pre_train)
+for(i in seq(1,nrow(train_pro))){
+  train_pro$group[i] <-  which.max(train_pro[i,1:4])
+}
+
+test_pro <- xbg_pred_frame
+for(i in seq(1,nrow(test_pro))){
+  test_pro$group[i] <-  which.max(test_pro[i,1:4])
+}
+
+Cindex_train <- rcorrcens(train_data$group~train_pro$group)
+Cindex_test <- rcorrcens(test_data$group~test_pro$group)
+Cindex_train
+Cindex_test
+```
+### 8 DCA 
+```{r}
+library(xgboost)
+```
+
+```{r}
+data(esoph)
+dt <- esoph
+dt$ncases <- ifelse(dt$ncases=="0", 0, 1)
+
+dt$ncases <- ifelse(dt$ncases=="0", 0, 1)
+dtrain <- xgb.DMatrix(data = data.matrix(dt[, -c(1, 2)]),
+          label = dt$ncases)
+
+params <- list(objective="binary:logistic",
+                max_depth=3,
+                eta=0.2,
+                verbose=-1,
+                eval_metric="auc")
+
+#XGBoost模型拟合
+xgb_fit <- xgb.train(dtrain,
+                     params = params,
+                     nrounds = 100)
+
+# 模型预测
+xgb_pred <- predict(xgb_fit,
+                    newdata = data.matrix(dt[, -c(1, 2)]))
+```
+
+```{r}
+measure_data <- dt %>% 
+  select(ncases) %>%
+  bind_cols(pred = xgb_pred)
+```
+
+```{r}
+library(dcurves)
+measure_data.2 <- data.frame(test_label,xbg_pred_frame)
+dca(data = measure_data.2, test_label ~ .) 
+```
+
+## 6 MNL: multinomial logistics regression
+### 1 Adjust Coefficiency
+```{r}
+set.seed(1234)
+library(tidyverse)
+library(caret)
+library(nnet)
+
+# 设置拟合条件
+fitControl <- trainControl(method = "cv", 
+                           number = 10,
+                           verboseIter = FALSE,
+                           search = "grid" # random随机搜索，也可设定 "grid" 网格搜索
+                           )
+# XGBoost 调参
+caret_multilog <- train(group~., 
+                   data = train_data, # dataframe 格式
+                   method="logreg",
+                   trainControl=fitControl
+                   )
+caret_multilog$bestTune
+```
+
+### 2 Analysis
+```{r}
+train_data <- train_data1
+test_data <- test_data1
+
+MNL_model <- nnet::multinom(group ~., data = train_data)
+
+#MNL_model <- lrm(group ~ rcs(Age,4)+Pfirm, data = train_data)
+```
+### 3 Prediction
+```{r}
+set.seed(1234)
+pre_ran <- predict(MNL_model,
+                   newdata=test_data,
+                   type = "prob",  # type = "prob" !!!非常重要!是ROC有多点的关键。
+                   probability = T)
+pre_ran <- as.data.frame(pre_ran)
+MNL_pre <- as.data.frame(pre_ran)
+```
+
+```{r}
+set.seed(1)
+y <- factor(sample(1:3, 400, TRUE), 1:3, c('good','better','best'))
+x1 <- runif(400)
+x2 <- runif(400)
+f <- lrm(y ~ rcs(x1,4)*x2, x=TRUE) 
+L <- predict(f, se.fit=TRUE)  
+```
+
+### 4 ROC & PR
+```{r}
+true_label <- data.frame(C1_true=rep(0,nrow(test_data)),
+                         C2_true=rep(0,nrow(test_data)),
+                         C3_true=rep(0,nrow(test_data)),
+                         C4_true=rep(0,nrow(test_data)))
+G <- as.numeric(test_data$group)
+for(i in seq(1,nrow(test_data))){
+  true_label[i,G[i]] <- 1
+} 
+colnames(pre_ran) <- c("C1_pred_MNL","C2_pred_MNL","C3_pred_MNL","C4_pred_MNL")
+```
+
+```{r}
+require(multiROC)
+final_df <- cbind(true_label,pre_ran)
+#data(test_data)
+roc_res <- multi_roc(final_df, force_diag=T)
+pr_res <- multi_pr(final_df, force_diag=T)
+ 
+plot_roc_df <- plot_roc_data(roc_res)
+plot_pr_df <- plot_pr_data(pr_res)
+
+# write.xlsx(plot_roc_df,
+#            "/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Lasso_clinical/20240401/MNL/plot_roc_df_MNL_clinical.xlsx",
+#            overwrite = T)
+```
+
+```{r}
+require(ggplot2)
+ggplot(plot_roc_df, aes(x = 1-Specificity, y=Sensitivity)) +
+  geom_path(aes(color = Group), size=1.5) + #linetype=Method
+  geom_segment(aes(x = 0, y = 0, xend = 1, yend = 1), 
+               colour='grey', linetype = 'dotdash') +
+  theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5), 
+        legend.justification=c(1, 0), legend.position=c(.95, .05),
+        legend.title=element_blank(), 
+        legend.background = element_rect(fill=NULL, size=0.5, 
+                                         linetype="solid", colour ="black"))
+```
+
+```{r}
+require(ggplot2)
+ggplot(plot_pr_df, aes(x = Recall, y=Precision)) +
+  geom_path(aes(color = Group), size=1.5) + #linetype=Method
+  geom_segment(aes(x = 0, y = 1, xend = 1, yend = 0), 
+               colour='grey', linetype = 'dotdash') +
+  theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5), 
+        legend.justification=c(1, 0), legend.position=c(.17, .05),
+        legend.title=element_blank(), 
+        legend.background = element_rect(fill=NULL, size=0.5, 
+                                         linetype="solid", colour ="black"))
+```
+
+```{r}
+ggsave("/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Lasso_clinical/20240401/MNL/PR_plot_MNL_clinical.pdf",
+         plot = last_plot(),
+       width =6, height =5,dpi = 300)
+```
+
+### 5 Training ROC & PR
+```{r}
+true_label <- data.frame(C1_true=rep(0,nrow(train_data)),
+                         C2_true=rep(0,nrow(train_data)),
+                         C3_true=rep(0,nrow(train_data)),
+                         C4_true=rep(0,nrow(train_data)))
+set.seed(1234)
+pre_train <- predict(MNL_model,
+                   newdata=train_data,
+                   type = "prob",  # type = "prob" !!!非常重要!是ROC有多点的关键。
+                   probability = T)
+pre_train  <- as.data.frame(pre_train)
+
+G <- as.numeric(train_data$group)
+for(i in seq(1,nrow(train_data))){
+  true_label[i,G[i]] <- 1
+} 
+colnames(pre_train) <- c("C1_pred_MNL","C2_pred_MNL","C3_pred_MNL","C4_pred_MNL")
+```
+
+```{r}
+require(multiROC)
+final_df_train <- cbind(true_label,pre_train)
+#data(train_data)
+roc_train <- multi_roc(final_df_train, force_diag=T)
+pr_train <- multi_pr(final_df_train, force_diag=T)
+
+plot_roc_df_train <- plot_roc_data(roc_train)
+plot_pr_df_train <- plot_pr_data(pr_train)
+
+# write.xlsx(plot_roc_df_train,
+#            "/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Lasso_clinical/20240123/MNL/plot_roc_df_MNL_train_clinical.xlsx",
+#            overwrite = F)
+```
+
+```{r}
+require(ggplot2)
+ggplot(plot_roc_df_train, aes(x = 1-Specificity, y=Sensitivity)) +
+  geom_path(aes(color = Group), size=1.5) + #linetype=Method
+  geom_segment(aes(x = 0, y = 0, xend = 1, yend = 1), 
+               colour='grey', linetype = 'dotdash') +
+  theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5), 
+        legend.justification=c(1, 0), legend.position=c(.95, .05),
+        legend.title=element_blank(), 
+        legend.background = element_rect(fill=NULL, size=0.5, 
+                                         linetype="solid", colour ="black"))
+```
+
+```{r}
+require(ggplot2)
+ggplot(plot_pr_df_train, aes(x = Recall, y=Precision)) +
+  geom_path(aes(color = Group), size=1.5) + #linetype=Method
+  geom_segment(aes(x = 0, y = 1, xend = 1, yend = 0), 
+               colour='grey', linetype = 'dotdash') +
+  theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5), 
+        legend.justification=c(1, 0), legend.position=c(.17, .05),
+        legend.title=element_blank(), 
+        legend.background = element_rect(fill=NULL, size=0.5, 
+                                         linetype="solid", colour ="black"))
+```
+
+```{r}
+ggsave("/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Lasso_clinical/20240123/MNL/PR_train_plot_clinical.pdf",
+         plot = last_plot(),
+       width =6, height =5,dpi = 300)
+```
+
+### 6 C-index
+```{r}
+library(Hmisc)
+train_pro <- data.frame(pre_train)
+for(i in seq(1,nrow(train_pro))){
+  train_pro$group[i] <-  which.max(train_pro[i,1:4])
+}
+
+test_pro <- data.frame(pre_ran)
+for(i in seq(1,nrow(test_pro))){
+  test_pro$group[i] <-  which.max(test_pro[i,1:4])
+}
+
+Cindex_train <- rcorrcens(train_data$group~train_pro$group)
+Cindex_test <- rcorrcens(test_data$group~test_pro$group)
+Cindex_train
+Cindex_test
+```
+
+# 7 DCA
+## 1 Test
+```{r}
+library(survival)
+library(tidymodels)
+library(discrim)
+head(gbsg)
+
+set.seed(123)
+data <- gbsg[,c(-1)]
+data$status <- as.factor(data$status)
+```
+
+## 2 Data
+```{r}
+bk_t <- bk_t.1
+#train_data <- train_data1
+for(i in seq(1,85)){
+  if(bk_t$group[i] != 4){
+    bk_t$group.2[i] = 0
+  } 
+  else{
+    bk_t$group.2[i] = 1
+  }
+}
+bk_t$group.2 <- as.factor(bk_t$group.2)
+
+bk_t <- bk_t[,-21]
+```
+
+```{r}
+rec <- recipe(group.2~.,bk_t)
+folds <- bootstraps(bk_t,10)  
+
+xgb_mod <- boost_tree() %>%           
+  set_engine("xgboost") %>%           
+  set_mode("classification") 
+           
+dt_mod <- decision_tree() %>%           
+  set_engine("rpart") %>%           
+  set_mode("classification") 
+           
+logistic_mod <-          
+  logistic_reg() %>%          
+  set_engine('glm')          
+          
+nnet_mod <-          
+  mlp() %>%          
+  set_engine('nnet') %>%          
+  set_mode('classification')          
+      
+rf_mod <-          
+  rand_forest() %>%          
+  set_engine('ranger') %>%          
+  set_mode('classification')          
+          
+svm_mod <-          
+  svm_rbf() %>%          
+  set_engine('kernlab') %>%          
+  set_mode('classification')
+
+
+wf <- workflow_set(preproc=list(rec),          
+                   models=list(xgb=xgb_mod, 
+                        #dt=dt_mod,          
+                        log= logistic_mod, 
+                        #nnet=nnet_mod,          
+                        rf=rf_mod,          
+                        svm=svm_mod))
+
+
+ctr <- control_resamples(save_pred = TRUE)  
+
+wf_res <- wf %>%workflow_map("fit_resamples",resamples=folds,  control=ctr)
+```
+
+```{r}
+library(dcurves)          
+p <- collect_predictions(wf_res) %>%           
+  group_by(wflow_id) %>%          
+  group_map(~dca(data=.x,status~.pred_1))
+```
+
+## 3 Visualization
+```{r}
+#rec <- recipe(group.2~.,train_data)
+dca_data <- collect_predictions(wf_res) %>%     
+  group_by(model) %>%           
+  select(group.2,.pred_1) %>%           
+  tidyr::pivot_wider(          
+    names_from = model,          
+    values_from = .pred_1) %>%           
+  unnest()
+  
+dca(data = dca_data,group.2~.) %>%          
+  as_tibble() %>%           
+  ggplot(aes(x = threshold,           
+             y = net_benefit,           
+             color = label)) +          
+  geom_line(lwd=1) +          
+  coord_cartesian(ylim = c(0, 0.5)) +          
+  scale_x_continuous(          
+    labels = scales::percent_format(accuracy = 1)) +          
+  labs(x = "Threshold Probability",           
+       y = "Net Benefit", color = "") +          
+  theme_bw()+          
+  theme(legend.position = c(0.85,0.6))
+
+
+ggsave("/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Lasso_clinical/20240501/DCA_all_C4.pdf",
+         plot = last_plot(),
+       width =6, height =5,dpi = 300)
+```
+
+## 4 针对已有模型
+### 1 C1
+```{r}
+no = 1
+outcome = ifelse(train_data$group == no,1,0)
+
+dca_data_2 <- data.frame(group.2 = outcome, 
+                         RF = RF_pre[,no], svc=svc_predict[,no], 
+                         xgb = xbg_pred_frame[,no],MNL = MNL_pre[,no])
+  
+dca(data = dca_data_2,group.2~.) %>%          
+  as_tibble() %>%           
+  ggplot(aes(x = threshold,           
+             y = net_benefit,           
+             color = label)) +          
+  geom_line(lwd=1) +          
+  coord_cartesian(ylim = c(0, 0.5)) +          
+  scale_x_continuous(          
+    labels = scales::percent_format(accuracy = 1)) +          
+  labs(x = "Threshold Probability",           
+       y = "Net Benefit", 
+       title = "Cluster1",
+       color = "") + 
+  theme_bw()+          
+  theme(legend.position = c(0.85,0.6),
+        plot.title = element_text(hjust = 0.5,size=12))
+
+
+ggsave("/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Lasso_clinical/20240501/DCA_train_C1_old.pdf",
+         plot = last_plot(),
+       width =6, height =5,dpi = 300)
+```
+
+### 2 C2
+```{r}
+no = 2
+outcome = ifelse(train_data$group == no,1,0)
+
+dca_data_2 <- data.frame(group.2 = outcome, 
+                         RF = RF_pre[,no], svc=svc_predict[,no], 
+                         xgb = xbg_pred_frame[,no],MNL = MNL_pre[,no])
+  
+dca(data = dca_data_2,group.2~.) %>%          
+  as_tibble() %>%           
+  ggplot(aes(x = threshold,           
+             y = net_benefit,           
+             color = label)) +          
+  geom_line(lwd=1) +          
+  coord_cartesian(ylim = c(0, 0.3)) +          
+  scale_x_continuous(          
+    labels = scales::percent_format(accuracy = 1)) +          
+  labs(x = "Threshold Probability",           
+       y = "Net Benefit", 
+       title = "Cluster2",
+       color = "") + 
+  theme_bw()+          
+  theme(legend.position = c(0.85,0.6),
+        plot.title = element_text(hjust = 0.5,size=12))
+
+
+ggsave("/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Lasso_clinical/20240501/DCA_train_C2_old.pdf",
+         plot = last_plot(),
+       width =6, height =5,dpi = 300)
+```
+
+### 3 C3
+```{r}
+no = 3
+outcome = ifelse(train_data$group == no,1,0)
+
+dca_data_2 <- data.frame(group.2 = outcome, 
+                         RF = RF_pre[,no], svc=svc_predict[,no], 
+                         xgb = xbg_pred_frame[,no],MNL = MNL_pre[,no])
+  
+dca(data = dca_data_2,group.2~.) %>%          
+  as_tibble() %>%           
+  ggplot(aes(x = threshold,           
+             y = net_benefit,           
+             color = label)) +          
+  geom_line(lwd=1) +          
+  coord_cartesian(ylim = c(0, 0.3)) +          
+  scale_x_continuous(          
+    labels = scales::percent_format(accuracy = 1)) +          
+  labs(x = "Threshold Probability",           
+       y = "Net Benefit", 
+       title = "Cluster3",
+       color = "") + 
+  theme_bw()+          
+  theme(legend.position = c(0.85,0.6),
+        plot.title = element_text(hjust = 0.5,size=12))
+
+
+ggsave("/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Lasso_clinical/20240501/DCA_train_C3_old.pdf",
+         plot = last_plot(),
+       width =6, height =5,dpi = 300)
+```
+
+
+
+
+
+
+### 4 C4
+```{r}
+no = 4
+outcome = ifelse(train_data$group == no,1,0)
+
+dca_data_2 <- data.frame(group.2 = outcome, 
+                         RF = RF_pre[,no], svc=svc_predict[,no], 
+                         xgb = xbg_pred_frame[,no],MNL = MNL_pre[,no])
+  
+dca(data = dca_data_2,group.2~.) %>%          
+  as_tibble() %>%           
+  ggplot(aes(x = threshold,           
+             y = net_benefit,           
+             color = label)) +          
+  geom_line(lwd=1) +          
+  coord_cartesian(ylim = c(0, 0.3)) +          
+  scale_x_continuous(          
+    labels = scales::percent_format(accuracy = 1)) +          
+  labs(x = "Threshold Probability",           
+       y = "Net Benefit", 
+       title = "Cluster4",
+       color = "") + 
+  theme_bw()+          
+  theme(legend.position = c(0.85,0.6),
+        plot.title = element_text(hjust = 0.5,size=12))
+
+
+ggsave("/linp/linp/IDD_classification/Formal Analysis/8 Machine learning/Lasso_clinical/20240501/DCA_train_C4_old.pdf",
+         plot = last_plot(),
+       width =6, height =5,dpi = 300)
+```

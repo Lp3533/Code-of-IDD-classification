@@ -1,0 +1,415 @@
+
+# 1 Information
+```{r}
+cli_infor_120 <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/5 Clinical information/120_Lumbar_part1_adjust.xlsx")
+```
+
+# 2 Circulation
+## 1 Histogram
+```{r}
+#path <- "/linp/linp/IDD_classification/Formal Analysis/3 Clustering/122Lumbar/New_5/122Lumbar_SC3_CV3500/Group="
+path <- "/linp/linp/IDD_classification/Formal Analysis/3 Clustering/122Lumbar/New_5/SC3_stability/Gene8000Group="
+cli_infor_122 <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/5 Clinical information/122Lumbar/122_Lumbar_part1_adjust2.xlsx")
+parameter <- '122Lumbar_SC3_CV8000'
+parameter.2 <- '122Lumbar/New_5/'
+
+# cli_infor_122$Course.of.disease <- factor(cli_infor_122$Course.of.disease , levels = c("Acute","Subacute","Chronic"))
+# cli_infor_122$Lumbar.VAS <- factor(cli_infor_122$Lumbar.VAS , levels = c("Mild","Middle","Serious"))
+# cli_infor_122$Leg.VAS <- factor(cli_infor_122$Leg.VAS , levels = c("Mild","Middle","Serious"))
+```
+
+```{r}
+for(i in seq(3,4)){
+  #Group <- read.xlsx(paste(path,i,'.xlsx',sep=""))
+  Group <- read.xlsx(paste(path,i,'.xlsx',sep=""))
+  #colnames(Group) <- c('samples','cluster')
+  
+  for(item_no in seq(3,25)){
+    pic_all <- as.data.frame(melt(table(cli_infor_122[,item_no])))
+    colnames(pic_all) <- c("target","value")
+    pic_all$percent <- round(pic_all$value / sum(pic_all$value) * 100, 2)
+    pic_all$Cluster <- "All"
+
+    for(Group_no in seq(1:i)){
+      samples_name <- Group[Group$cluster == Group_no,]$samples
+      pic <- as.data.frame(melt(table(cli_infor_122[cli_infor_122$samples %in% samples_name,][,item_no])))
+      colnames(pic) <- c('target',"value")
+      pic$percent <- round(pic$value / sum(pic$value) * 100, 2)
+      pic$Cluster <- paste('Cluster',Group_no,sep = "")
+      pic_all <- rbind(pic_all,pic)
+    }
+    pic_all$target <- as.character(pic_all$target)
+    ggplot(pic_all, aes( x = Cluster, weight = percent/10, fill = target))+
+      geom_bar( position = "stack")+
+      geom_text(aes(label = paste(percent,"%"),y=percent/10), 
+            position = position_stack(vjust = 0.5), size = 3)+
+      #theme_bw() + #去除背景色
+      labs(x = "Cluster", y = "Percent", title = paste(parameter,colnames(cli_infor_122)[item_no],sep="_")) + 
+      # theme(axis.ticks = element_blank()) + 
+      # theme(legend.title = element_blank(), legend.position = "right")+
+      theme(panel.grid =element_blank()) + #去除网格线
+      theme(plot.title = element_text(hjust = 0.5,size=13))
+    
+    outpath <- paste("/linp/linp/IDD_classification/Formal Analysis/5 Clinical information/",parameter.2,parameter,"/PDF/Group=",sep = "")
+    ggsave(paste(outpath,i,'_',colnames(cli_infor_122)[item_no],".pdf",sep = ""),
+         plot = last_plot(),
+         device = cairo_pdf,width =6, height =6,dpi = 300)
+    
+    outpath <- paste("/linp/linp/IDD_classification/Formal Analysis/5 Clinical information/",parameter.2,parameter,"/PNG/Group=",sep = "")
+    ggsave(paste(outpath,i,'_',colnames(cli_infor_122)[item_no],".png",sep = ""),
+         plot = last_plot(),
+         width =6, height =6,dpi = 300)
+  }
+}
+```
+
+## 2 Box diagram
+```{r}
+path <- "/linp/linp/IDD_classification/Formal Analysis/3 Clustering/122Lumbar/Threshold=5/122Lumbar_SC3_CV11325/Group="
+cli_infor_122 <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/5 Clinical information/122Lumbar/122_Lumbar_part1_adjust2.xlsx")
+parameter <- '122Lumbar_SC3_CV11325'
+parameter.2 <- '122Lumbar/Threshold=5/'
+```
+
+```{r}
+for(i in seq(3,4)){
+  Group <- read.xlsx(paste(path,i,'.xlsx',sep=""))
+  #colnames(Group) <- c('samples','cluster')
+  
+  ratio <- tibble::rownames_to_column(cli_infor_122[seq(26,46)],) #让列名独立显示出来 c(27:29,31:35)
+  ratio <- melt(ratio) 
+  ratio$group <- rep(Group$cluster,21) 
+  for(item_name in colnames(cli_infor_122)[seq(26,46)]){
+    box_paint <- ratio[ratio$variable == item_name,]	
+    ggplot(box_paint,aes(x=group,y=value,color=group))+
+      theme_bw()+#改变绘图主题
+      labs(title = paste(parameter,item_name,sep = "_"))+
+      theme(plot.title = element_text(hjust = 0.5,size=12))+
+      geom_boxplot()
+    
+    outpath <- paste("/linp/linp/IDD_classification/Formal Analysis/5 Clinical information/",parameter.2,parameter,"/PDF/Group=",sep = "")
+    ggsave(paste(outpath,i,'_',item_name,".pdf",sep = ""),
+         plot = last_plot(),
+         device = cairo_pdf,width =4, height =5,dpi = 300)
+
+    outpath <- paste("/linp/linp/IDD_classification/Formal Analysis/5 Clinical information/",parameter.2,parameter,"/PNG/Group=",sep = "")
+    ggsave(paste(outpath,i,'_',item_name,".png",sep = ""),
+         plot = last_plot(),
+         width =4, height =5,dpi = 300)
+  }
+}
+```
+```{r}
+```
+# 3 Heatmap
+## 1 Discrete
+```{r}
+library(reshape2)
+cli_infor_122 <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/5 Clinical information/122Lumbar/122_Lumbar_part1_adjust2.xlsx")
+Group <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/3 Clustering/122Lumbar/New_5/SC3_stability/Gene8000Group=4.xlsx")
+```
+### 1 All
+```{r}
+cli_infor_122$Group <- Group$cluster
+cli_infor_122 <- cli_infor_122[order(cli_infor_122$Group,decreasing = F),]
+cli_infor_122$samples <- factor(cli_infor_122$samples,levels = cli_infor_122$samples,)
+cli_infor_122.2 <- cli_infor_122[,c(1,3:25)]
+testdata <- melt(cli_infor_122.2,
+                 id.vars=c("samples"),
+                 measure.vars = colnames(cli_infor_122.2)[-1],
+                 variable.name = "variable",value.name = "x")
+testdata <- testdata[!is.na(testdata$x),]
+testdata$variable <- factor(testdata$variable , 
+                            levels = rev(c("Age","Sex","BMI","Segment","Course.of.disease",
+                                       "Pfirm","Modic",
+                                       "IVD_H_morphology","Lumbar.morphology",
+                                       "Lumbar.VAS","Leg.VAS","SLR","ODI","Numbness","Muscle.strength",
+                                       "Intermittent.claudication",
+                                       "Schmorl.Node","Osteophyte","FI","FI_level",
+                                       "Bend.back-straighten","Lateral.bending","Spondylolisthesis"
+                                       )))
+testdata$x <- factor(testdata$x,levels = c("~30","31~40","41~50","51~60","61~70","71~",
+                                           "Male","Female",
+                                           "~24","24~27","27~",
+                                           "Upper Lumbar","Lower Lumbar",
+                                           "2","3","4","5",
+                                           "0","1",
+                                           "Acute","Subacute","Chronic",
+                                           "Mild","Moderate","Serious",
+                                           "0~50","50~100",
+                                           "Normal","Decreased"))
+Color <- c(rgb(075/255,116/255,178/255),rgb(168/255,218/255,219/255),rgb(230/255,241/255,243/255),rgb(255/255,223/255,146/255),rgb(252/255,140/255,90/255),rgb(219/255,049/255,036/255),
+           rgb(69/255,123/255,157/255),rgb(231/255,56/255,71/255),
+           #rgb(184/255,183/255,163/255),rgb(203/255,153/255,126/255),
+           rgb(130/255,178/255,154/255),rgb(60/255,64/255,91/255),rgb(223/255,122/255,94/255),
+           # rgb(212/255,76/255,60/255),rgb(229/255,133/255,093/255),rgb(238/255,213/255,183/255),rgb(183/255,181/255,160/255),rgb(68/255,117/255,122/255),
+           rgb(238/255,213/255,183/255),rgb(68/255,117/255,122/255),
+           rgb(13/255,76/255,109/255),rgb(115/255,186/255,214/255),rgb(239/255,65/255,67/255),rgb(191/255,030/255,46/255),
+           rgb(019/255,103/255,131/255),rgb(254/255,179/255,174/255),
+           rgb(016/255,70/255,128/255),rgb(109/255,173/255,209/255),rgb(233/255,241/255,244/255),
+           rgb(251/255,227/255,213/255),rgb(220/255,109/255,87/255),rgb(109/255,1/255,13/255),
+           rgb(228/255,208/255,142/255),rgb(26/255,126/255,118/255),
+           rgb(093/255,179/255,169/255),rgb(148/255,88/255,15/255))
+line_place <- table(Group$cluster)
+line_place.2 <- c(line_place[1])
+for(i in seq(2,length(line_place)-1)){
+  line_place.2 <- c(line_place.2,line_place.2[i-1]+line_place[i])
+}
+line_place.2 <- line_place.2+0.5
+
+p <- ggplot(testdata, aes(x = samples, y = variable, fill = x)) +
+  geom_tile(color = "white", size = 0.25) +
+  scale_fill_manual(name = "Category",
+                    #labels = names(sort_table),
+                    values = Color)+
+  theme(panel.border = element_rect(fill=NA,color="black", size=1, linetype="solid"),
+    axis.text.x = element_text(angle = 90, hjust = 1),
+    panel.background = element_blank(),
+    plot.title = element_text(size = rel(1.2)),
+    axis.title = element_blank(),
+    axis.ticks = element_blank(),
+    legend.title = element_blank(),
+    legend.position = "right")+
+  geom_vline(xintercept=line_place.2,size=1)
+p
+```
+
+### 2 Part
+```{r}
+cli_infor_122$Group <- Group$cluster
+cli_infor_122 <- cli_infor_122[order(cli_infor_122$Group,decreasing = F),]
+cli_infor_122$samples <- factor(cli_infor_122$samples,levels = cli_infor_122$samples,)
+cli_infor_122.2 <- cli_infor_122[,c(1,3:5,7,9:11,14,21)]
+testdata <- melt(cli_infor_122.2,
+                 id.vars=c("samples"),
+                 measure.vars = colnames(cli_infor_122.2)[-1],
+                 variable.name = "variable",value.name = "x")
+testdata <- testdata[!is.na(testdata$x),]
+testdata$variable <- factor(testdata$variable , 
+                            levels = rev(c("Age","Sex","BMI","Course.of.disease",
+                                       "Pfirm",
+                                       "IVD_H_morphology",
+                                       "Lumbar.VAS",
+                                       "Intermittent.claudication",
+                                       "Spondylolisthesis"
+                                       )))
+testdata$x <- factor(testdata$x,levels = c("~30","31~40","41~50","51~60","61~70","71~",
+                                           "Male","Female",
+                                           "~24","24~27","27~",
+                                           "2","3","4","5",
+                                           "0","1",
+                                           "Acute","Subacute","Chronic",
+                                           "Mild","Moderate","Serious"))
+Color <- c(rgb(075/255,116/255,178/255),rgb(168/255,218/255,219/255),rgb(230/255,241/255,243/255),rgb(255/255,223/255,146/255),rgb(252/255,140/255,90/255),rgb(219/255,049/255,036/255),
+           rgb(69/255,123/255,157/255),rgb(231/255,56/255,71/255),
+           #rgb(184/255,183/255,163/255),rgb(203/255,153/255,126/255),
+           rgb(130/255,178/255,154/255),rgb(60/255,64/255,91/255),rgb(223/255,122/255,94/255),
+           # rgb(212/255,76/255,60/255),rgb(229/255,133/255,093/255),rgb(238/255,213/255,183/255),rgb(183/255,181/255,160/255),rgb(68/255,117/255,122/255),
+           rgb(13/255,76/255,109/255),rgb(115/255,186/255,214/255),rgb(239/255,65/255,67/255),rgb(191/255,030/255,46/255),
+           rgb(019/255,103/255,131/255),rgb(254/255,179/255,174/255),
+           rgb(016/255,70/255,128/255),rgb(109/255,173/255,209/255),rgb(233/255,241/255,244/255),
+           rgb(251/255,227/255,213/255),rgb(220/255,109/255,87/255),rgb(109/255,1/255,13/255))
+line_place <- table(Group$cluster)
+line_place.2 <- c(line_place[1])
+for(i in seq(2,length(line_place)-1)){
+  line_place.2 <- c(line_place.2,line_place.2[i-1]+line_place[i])
+}
+line_place.2 <- line_place.2+0.5
+
+p <- ggplot(testdata, aes(x = samples, y = variable, fill = x)) +
+  geom_tile(color = "white", size = 0.25) +
+  scale_fill_manual(name = "Category",
+                    #labels = names(sort_table),
+                    values = Color)+
+  theme(panel.border = element_rect(fill=NA,color="black", size=1, linetype="solid"),
+    axis.text.x = element_text(angle = 90, hjust = 1),
+    panel.background = element_blank(),
+    plot.title = element_text(size = rel(1.2)),
+    axis.title = element_blank(),
+    axis.ticks = element_blank(),
+    legend.title = element_blank(),
+    legend.position = "right")+
+  geom_vline(xintercept=line_place.2,size=1)
+p
+
+ggsave("/linp/linp/IDD_classification/Formal Analysis/5 Clinical information/122Lumbar/New_5/122Lumbar_SC3_CV8000/Part_n=3.pdf",
+         plot = last_plot(),
+         device = cairo_pdf,width =8, height =3.5,dpi = 300)
+```
+
+## 2 Continuous
+### All
+```{r}
+cli_infor_122 <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/5 Clinical information/122Lumbar/122_Lumbar_part1_adjust2.xlsx")
+Group <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/3 Clustering/122Lumbar/New_5/SC3_stability/Gene8000Group=4.xlsx")
+```
+
+```{r}
+cli_infor_122$Group <- Group$cluster
+cli_infor_122 <- cli_infor_122[order(cli_infor_122$Group,decreasing = F),]
+cli_infor_122$samples <- factor(cli_infor_122$samples,levels = cli_infor_122$samples,)
+cli_infor_122.2 <- cli_infor_122[,c(1,26)] 
+testdata <- melt(cli_infor_122.2,
+                 id.vars=c("samples"),
+                 measure.vars = colnames(cli_infor_122.2)[-1],
+                 variable.name = "variable",value.name = "x")
+
+line_place <- table(Group$cluster)
+line_place.2 <- c(line_place[1])
+for(i in seq(2,length(line_place)-1)){
+  line_place.2 <- c(line_place.2,line_place.2[i-1]+line_place[i])
+}
+line_place.2 <- line_place.2+0.5
+
+p1 <- ggplot(testdata, aes(x = samples, y = variable, fill = x)) +
+  geom_tile(color = "white", size = 0.25) +
+  # scale_fill_manual(name = "Category",
+  #                   #labels = names(sort_table),
+  #                   values = Color)+
+  #scale_fill_gradient(low="blue",high = "red",mid="white")+
+  #scale_fill_gradient2(low="blue", high="red", mid="white")+
+  scale_fill_distiller(name="Experimental",palette = "RdYlBu")+
+  theme(panel.border = element_rect(fill=NA,color="black", size=1, linetype="solid"),
+    axis.text.x = element_text(angle = 90, hjust = 1),
+    panel.background = element_blank(),
+    plot.title = element_text(size = rel(1.2)),
+    axis.title = element_blank(),
+    axis.ticks = element_blank(),
+    legend.title = element_blank(),
+    legend.position = "right")+
+  geom_vline(xintercept=line_place.2,size=1)
+p1
+```
+
+```{r}
+for(i in seq(26,46)){
+  # cli_infor_122$Group <- Group$cluster
+  # cli_infor_122 <- cli_infor_122[order(cli_infor_122$Group,decreasing = F),]
+  # cli_infor_122$samples <- factor(cli_infor_122$samples,levels = cli_infor_122$samples,)
+  cli_infor_122.2 <- cli_infor_122[,c(1,i)]
+  testdata <- melt(cli_infor_122.2,
+                 id.vars=c("samples"),
+                 measure.vars = colnames(cli_infor_122.2)[-1],
+                 variable.name = "variable",value.name = "x")
+
+  line_place <- table(Group$cluster)
+  line_place.2 <- c(line_place[1])
+  for(i in seq(2,length(line_place)-1)){
+    line_place.2 <- c(line_place.2,line_place.2[i-1]+line_place[i])
+  }
+  line_place.2 <- line_place.2+0.5
+
+  p2 <- ggplot(testdata, aes(x = samples, y = variable, fill = x)) +
+    geom_tile(color = "white", size = 0.25) +
+    # scale_fill_manual(name = "Category",
+    #                   #labels = names(sort_table),
+    #                   values = Color)+
+    #scale_fill_gradient(low="blue",high = "red",mid="white")+
+    #scale_fill_gradient2(low="blue", high="red", mid="white")+
+    scale_fill_distiller(palette = "RdYlBu")+
+    theme(panel.border = element_rect(fill=NA,color="black", size=1, linetype="solid"),
+      axis.text.x = element_text(angle = 90, hjust = 1),
+      panel.background = element_blank(),
+      plot.title = element_text(size = rel(1.2)),
+      axis.title = element_blank(),
+      axis.ticks = element_blank(),
+      legend.title = element_blank(),
+      legend.position = "right")+
+    geom_vline(xintercept=line_place.2,size=1)
+
+p1 <- p1/p2
+}
+p1
+```
+### Part
+```{r}
+cli_infor_122 <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/5 Clinical information/122Lumbar/122_Lumbar_part1_adjust2.xlsx")
+Group <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/3 Clustering/122Lumbar/New_5/SC3_stability/Gene8000Group=4.xlsx")
+```
+
+```{r}
+cli_infor_122$Group <- Group$cluster
+cli_infor_122 <- cli_infor_122[order(cli_infor_122$Group,decreasing = F),]
+cli_infor_122$samples <- factor(cli_infor_122$samples,levels = cli_infor_122$samples,)
+cli_infor_122.2 <- cli_infor_122[,c(1,28)] 
+testdata <- melt(cli_infor_122.2,
+                 id.vars=c("samples"),
+                 measure.vars = colnames(cli_infor_122.2)[-1],
+                 variable.name = "variable",value.name = "x")
+
+line_place <- table(Group$cluster)
+line_place.2 <- c(line_place[1])
+for(i in seq(2,length(line_place)-1)){
+  line_place.2 <- c(line_place.2,line_place.2[i-1]+line_place[i])
+}
+line_place.2 <- line_place.2+0.5
+
+p1 <- ggplot(testdata, aes(x = samples, y = variable, fill = x)) +
+  geom_tile(color = "white", size = 0.25) +
+  # scale_fill_manual(name = "Category",
+  #                   #labels = names(sort_table),
+  #                   values = Color)+
+  #scale_fill_gradient(low="blue",high = "red",mid="white")+
+  #scale_fill_gradient2(low="blue", high="red", mid="white")+
+  scale_fill_distiller(name="Experimental",palette = "RdYlBu")+
+  theme(panel.border = element_rect(fill=NA,color="black", size=1, linetype="solid"),
+    axis.text.x = element_text(angle = 90, hjust = 1),
+    panel.background = element_blank(),
+    plot.title = element_text(size = rel(1.2)),
+    axis.title = element_blank(),
+    axis.ticks = element_blank(),
+    legend.title = element_blank(),
+    legend.position = "right")+
+  geom_vline(xintercept=line_place.2,size=1)
+p1
+```
+
+```{r}
+for(i in c(29:31)){
+  # cli_infor_122$Group <- Group$cluster
+  # cli_infor_122 <- cli_infor_122[order(cli_infor_122$Group,decreasing = F),]
+  # cli_infor_122$samples <- factor(cli_infor_122$samples,levels = cli_infor_122$samples,)
+  cli_infor_122.2 <- cli_infor_122[,c(1,i)]
+  testdata <- melt(cli_infor_122.2,
+                 id.vars=c("samples"),
+                 measure.vars = colnames(cli_infor_122.2)[-1],
+                 variable.name = "variable",value.name = "x")
+
+  line_place <- table(Group$cluster)
+  line_place.2 <- c(line_place[1])
+  for(i in seq(2,length(line_place)-1)){
+    line_place.2 <- c(line_place.2,line_place.2[i-1]+line_place[i])
+  }
+  line_place.2 <- line_place.2+0.5
+
+  p2 <- ggplot(testdata, aes(x = samples, y = variable, fill = x)) +
+    geom_tile(color = "white", size = 0.25) +
+    # scale_fill_manual(name = "Category",
+    #                   #labels = names(sort_table),
+    #                   values = Color)+
+    #scale_fill_gradient(low="blue",high = "red",mid="white")+
+    #scale_fill_gradient2(low="blue", high="red", mid="white")+
+    scale_fill_distiller(palette = "RdYlBu")+
+    theme(panel.border = element_rect(fill=NA,color="black", size=1, linetype="solid"),
+      axis.text.x = element_text(angle = 90, hjust = 1),
+      panel.background = element_blank(),
+      plot.title = element_text(size = rel(1.2)),
+      axis.title = element_blank(),
+      axis.ticks = element_blank(),
+      legend.title = element_blank(),
+      legend.position = "right")+
+    geom_vline(xintercept=line_place.2,size=1)
+
+p1 <- p1/p2
+}
+p1
+```
+## 3 All
+```{r}
+library(patchwork)
+p/p1 + plot_layout(ncol = 1, heights = c(1, 1))
+ggsave("/linp/linp/IDD_classification/Formal Analysis/5 Clinical information/122Lumbar/New_5/122Lumbar_SC3_CV8000/Significant_n=4_noN.pdf",
+         plot = last_plot(),
+         device = cairo_pdf,width =8, height =6,dpi = 300)
+```
+

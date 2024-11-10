@@ -1,0 +1,497 @@
+```{r}
+library(limma)
+library(DESeq2)
+library(edgeR)
+```
+
+# 1 Bulk data
+```{r}
+count_122_Lumbar <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/1 Primary matrix/Count_122_Lumbar.xlsx")
+Genes <- count_122_Lumbar$Genes
+L_bk_noB <- count_122_Lumbar[,-1]
+rownames(L_bk_noB) <- Genes
+```
+
+# 2 Circulation for DEGs 
+## 2.1.1 Limma
+```{r}
+group <- read_xlsx('/linp/linp/IDD_classification/Formal Analysis/3 Clustering/122Lumbar/New_5/122Lumbar_SC3_CV8000/Group=4.xlsx')
+```
+
+```{r}
+#colnames(group) <- c("samples","cluster")
+group_no <- length(unique(group$cluster))
+for(z in seq(1,group_no)){
+  for(i in seq(1,nrow(group))){
+    if(group$cluster[i] == z){
+      group$cluster_DEGs[i] <- 'target'
+    }
+    else{
+      group$cluster_DEGs[i] <- 'rest'
+    }
+  }
+
+
+  condition <- factor(group$cluster_DEGs, 
+                     levels = unique(group$cluster_DEGs))
+
+  colData <- data.frame(row.names = colnames(L_bk_noB), condition)
+
+  design <- model.matrix(~0+factor(colData$condition))
+  colnames(design)=levels(factor(colData$condition))
+  rownames(design)=colnames(L_bk_noB)
+  
+  ## Analysis
+  DGElist <- DGEList(counts = L_bk_noB, group = condition)
+
+  ##将count值转化成log2-counts per million (logCPM)，准备进行线性回归
+  DGElist <- calcNormFactors( DGElist )
+
+  v <- voom(DGElist, design, plot = TRUE, normalize = "quantile")
+  contrast.matrix<-makeContrasts("target-rest",levels=design)
+  ##step1:对每一个基因进行线性模型构建
+  fit <- lmFit(v,design)
+  ##step2:构建芯片数据的线性模型，计算估计的相关系数和标准差;基于贝叶斯计算T值，F值和log-odds
+  fit2 <- contrasts.fit(fit, contrast.matrix)
+  fit2 <- eBayes(fit2)  
+  ##step3
+  tempOutput = topTable(fit2, coef=1, n=Inf)
+  nrDEG = na.omit(tempOutput)
+  
+  nrDEG$SYMBOL = rownames(nrDEG)
+
+  C_DEGs <-  nrDEG[(nrDEG$P.Value < 0.05),]
+  C_DEGs <- C_DEGs[order(C_DEGs$logFC,decreasing = T),]
+  
+  outpath <- "/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/DEGs/Limma/Group="
+  openxlsx::write.xlsx(C_DEGs,
+                       paste(outpath,group_no,'.C',z,".xlsx",sep = ""),
+                     overwrite = F)
+}
+```
+
+### 2.1.2 DEseq2
+```{r}
+group <- read_xlsx('/linp/linp/IDD_classification/Formal Analysis/3 Clustering/122Lumbar/New_5/122Lumbar_SC3_CV8000/Group=4.xlsx')
+```
+
+```{r}
+#colnames(group) <- c("samples","cluster")
+group_no <- length(unique(group$cluster))
+for(z in seq(1,group_no)){
+  for(i in seq(1,nrow(group))){
+    if(group$cluster[i] == z){
+      group$cluster_DEGs[i] <- 'target'
+    }
+    else{
+      group$cluster_DEGs[i] <- 'rest'
+    }
+  }
+
+
+  condition <- factor(group$cluster_DEGs, 
+                     levels = unique(group$cluster_DEGs))
+
+  colData <- data.frame(row.names = colnames(L_bk_noB), condition)
+
+  #第一步，构建 DESeqDataSet 对象
+  dds <- DESeqDataSetFromMatrix(countData = round(L_bk_noB), colData = colData, design= ~condition)
+
+  #第二步，计算差异倍数并获得 p 值
+  #备注：parallel = TRUE 可以多线程运行，在数据量较大时建议开启
+  dds1 <- DESeq(dds, fitType = 'mean', minReplicatesForReplace = 7, parallel = FALSE)
+
+  #注意，需将 treat 在前，control 在后，意为 treat 相较于 control 中哪些基因上调/下调
+  res <- results(dds1, contrast = c('condition', 'target', 'rest'))
+
+  res1 <- data.frame(res, stringsAsFactors = FALSE, check.names = FALSE)
+  res1$SYMBOL <- rownames(L_bk_noB)
+  C_DEGs <- res1[res1$pvalue < 0.05,]
+  C_DEGs <- res1[order(res1$log2FoldChange,decreasing = T),]
+
+  outpath <- "/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/DEGs/DEseq2/Group="
+  openxlsx::write.xlsx(C_DEGs,
+                       paste(outpath,group_no,'.C',z,".xlsx",sep = ""),
+                       overwrite = F)
+}
+```
+
+```{r}
+DEseq2 <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/Threshold=5/122Lumbar_SC3_CV11325/DEGs/DEseq2/Group=3.C2.xlsx")
+# Limma  <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar_SC3_CV3000/DEGs/Limma/Group=4.C1.xlsx")
+BGI <- read.xlsx("/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/Threshold=5/122Lumbar_SC3_CV11325/DEGs/BGI/3_C2_up_127genes.xlsx")
+BGI$SYMBOL <- str_sub(BGI$Gene.Symbol,2,-2)
+
+DEseq2 <- DEseq2[DEseq2$log2FoldChange>1,]
+# DEseq2 <- DEseq2[order(DEseq2$padj,decreasing = F),]
+# Limma <- Limma[Limma$logFC>0,]
+# Limma <- Limma[order(Limma$adj.P.Val,decreasing = F),]
+# DEseq2 <- DEseq2[c(1:1000),]
+# Limma <- Limma[c(1:1000),] 
+
+intersect(DEseq2$SYMBOL,BGI$SYMBOL) %>% length()
+```
+
+## 2.2 GO
+```{r}
+library(AnnotationDbi)
+library(org.Hs.eg.db)#人基因注释包
+library(org.Mm.eg.db)#小鼠基因注释包
+library(clusterProfiler)#富集包
+library(dplyr)
+```
+
+```{r}
+Type <- 'DEseq2/'
+path <- "/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/DEGs/"
+path <- paste(path,Type,sep = "")
+xlsx_names <- list.files(path)
+```
+
+### 2.2.1 up
+```{r}
+for(i in seq(1,length(xlsx_names))){
+  C_DEGs <- read_xlsx(paste(path,xlsx_names[i],sep = ""))
+  if(Type == 'Limma/'){
+      C_DEGs <- C_DEGs[(C_DEGs$logFC > 0.5)&(C_DEGs$adj.P.Val<0.05),]   # Limma
+  }
+  else if(Type == 'DEseq2/'){
+      C_DEGs <- C_DEGs[(C_DEGs$log2FoldChange > 0.5)&(C_DEGs$padj <0.05),]  # DEseq2
+  }
+  
+  #C_DEGs$SYMBOL <- str_sub(C_DEGs$`Gene Symbol`,2,-2)
+  diff <- C_DEGs
+  gene.df <- bitr(diff$SYMBOL,fromType="SYMBOL",toType="ENTREZID",
+                OrgDb = org.Hs.eg.db)
+    #TCGA数据框如果没有进行基因注释，那么fromType应该是Ensembl，各种ID之间可以互相转换,toType可以是一个字符串，也可以是一个向  量，看自己需求                     
+  gene <- gene.df$ENTREZID
+
+  ego_BP <- enrichGO(gene = gene,
+                   OrgDb=org.Hs.eg.db, #Human
+                   keyType = "ENTREZID",
+                   ont = "BP",
+                   pAdjustMethod = "BH",
+                   minGSSize = 1,
+                   pvalueCutoff = 0.01,
+                   qvalueCutoff = 0.05,
+                   readable = TRUE)
+  
+  ego_BP@result = ego_BP@result[ego_BP@result[["pvalue"]]<0.05,]
+  ego_BP@result = ego_BP@result[ego_BP@result[["Count"]]>5,]
+  # #4、将结果保存到当前路径
+  # ego_ALL <- as.data.frame(ego_ALL)
+  go_enrich_df <- as.data.frame(ego_BP@result)
+  go_enrich_df <- go_enrich_df[order(go_enrich_df$p.adjust,decreasing = FALSE),] #排序
+  rownames(go_enrich_df) <- 1:nrow(go_enrich_df)
+  
+  outpath <- "/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/GO/"
+  outpath <- paste(outpath,Type,"logFC0.5_GOup_",sep = "")
+  
+  openxlsx::write.xlsx(go_enrich_df,
+                     file=paste(outpath,xlsx_names[i],sep = ""),
+                     overwrite = F)
+}
+```
+
+### 2.2.2 down
+```{r}
+Type <- 'Limma/'
+path <- "/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/Threshold=5/122Lumbar_SC3_CV3500/DEGs/"
+path <- paste(path,Type,sep = "") 
+xlsx_names <- list.files(path)
+```
+
+```{r}
+for(i in seq(1,length(xlsx_names))){
+  C_DEGs <- read_xlsx(paste(path,xlsx_names[i],sep = ""))
+  if(Type == 'Limma/'){
+      C_DEGs <- C_DEGs[(C_DEGs$logFC < -1)&(C_DEGs$adj.P.Val<0.05),] # Limma
+  }
+  else if(Type == 'DEseq2/'){
+      C_DEGs <- C_DEGs[(C_DEGs$log2FoldChange < -1)&(C_DEGs$padj <0.05),]  # DEseq2
+  }
+  
+  #C_DEGs <- C_DEGs[!C_DEGs$SYMBOL %in% c('HBG1','HBE1','HBG2','HBD','HBQ1','HBM','HBA1','HBA2','HBB','HBP1'),]
+  # if(nrow(C_DEGs) < 1000){
+  #   diff <- C_DEGs
+  # }
+  # else{
+  #   diff <- C_DEGs[1:1000,]
+  # }
+  # 
+  diff <- C_DEGs
+  gene.df <- bitr(diff$SYMBOL,fromType="SYMBOL",toType="ENTREZID",
+                OrgDb = org.Hs.eg.db)
+    #TCGA数据框如果没有进行基因注释，那么fromType应该是Ensembl，各种ID之间可以互相转换,toType可以是一个字符串，也可以是一个向  量，看自己需求                     
+  gene <- gene.df$ENTREZID
+
+  ego_BP <- enrichGO(gene = gene,
+                   OrgDb=org.Hs.eg.db, #Human
+                   keyType = "ENTREZID",
+                   ont = "BP",
+                   pAdjustMethod = "BH",
+                   minGSSize = 1,
+                   pvalueCutoff = 0.01,
+                   qvalueCutoff = 0.05,
+                   readable = TRUE)
+  
+  ego_BP@result = ego_BP@result[ego_BP@result[["pvalue"]]<0.05,]
+  ego_BP@result = ego_BP@result[ego_BP@result[["Count"]]>5,]
+  # #4、将结果保存到当前路径
+  # ego_ALL <- as.data.frame(ego_ALL)
+  go_enrich_df <- as.data.frame(ego_BP@result)
+  go_enrich_df <- go_enrich_df[order(go_enrich_df$Count,decreasing = TRUE),] #排序
+  
+  err <- try(rownames(go_enrich_df) <- 1:nrow(go_enrich_df), TRUE)
+  if("try-error" %in% class(err)){
+    next
+  }
+  rownames(go_enrich_df) <- 1:nrow(go_enrich_df)
+  
+    outpath <- "/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/Threshold=5/122Lumbar_SC3_CV3500/GO/logFC=1/"
+  outpath <- paste(outpath,Type,"GOdown_",sep = "")
+
+    openxlsx::write.xlsx(go_enrich_df,
+                     file=paste(outpath,xlsx_names[i],sep = ""),
+                     overwrite = F)
+}
+```
+
+## 2.3 Reactome
+```{r}
+path <- "/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/120Lumbar_SC3_CV3500/DEGs/"
+xlsx_names <- list.files(path)
+```
+
+```{r}
+for(i in seq(1,length(xlsx_names))){
+  C_DEGs <- read_xlsx(paste(path,xlsx_names[i],sep = ""))
+  C_DEGs <- C_DEGs[C_DEGs$logFC > 0,]
+  if(nrow(C_DEGs) < 1000){
+    diff <- C_DEGs
+  }
+  else{
+    diff <- C_DEGs[1:1000,]
+  }
+  
+  gene.df <- bitr(diff$SYMBOL,fromType="SYMBOL",toType="ENTREZID",
+                OrgDb = org.Hs.eg.db)
+    #TCGA数据框如果没有进行基因注释，那么fromType应该是Ensembl，各种ID之间可以互相转换,toType可以是一个字符串，也可以是一个向  量，看自己需求                     
+  gene <- gene.df$ENTREZID
+
+  Reactome <- enrichPathway(gene=gene,
+                          pvalueCutoff=0.05, 
+                          readable=T)
+
+  Reactome@result <- Reactome@result[Reactome@result[["pvalue"]]<0.05,]
+  Reactome@result <- Reactome@result[Reactome@result[["Count"]]>5,]
+
+  result <- as.data.frame(Reactome@result)
+
+  result <- result[order(result$pvalue,decreasing = FALSE),] #将pvalue从小到大排序
+  rownames(result) <- 1:nrow(result)
+  result$order=factor(rev(as.integer(rownames(result))),
+                    labels = rev(result$Description))
+  
+  outpath <- "/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/120Lumbar_SC3_CV3500/Reactome/Reactomeup_"
+  
+  
+  openxlsx::write.xlsx(result,
+                     file=paste(outpath,xlsx_names[i],'.xlsx',sep = ""),
+                     overwrite = F)
+}
+```
+
+# 3 One-cluster to others
+```{r}
+group <- read_xlsx('/linp/linp/IDD_classification/Formal Analysis/3 Clustering/122Lumbar/New_5/122Lumbar_SC3_CV8000/Group=4.xlsx')
+#Data <- L_bk_noB
+```
+
+```{r}
+L_bk_noB <- Data
+group_no <- length(unique(group$cluster))
+for(start.no in seq(1,group_no-1)){
+  
+  for(z in seq(start.no+1,group_no)){
+    for(i in seq(1,nrow(group))){
+      if(group$cluster[i] == start.no){
+        group$cluster_DEGs[i] <- 'target'
+      }
+      else if(group$cluster[i] == z){
+        group$cluster_DEGs[i] <- 'rest'
+      }
+      else {
+        group$cluster_DEGs[i] <- NA
+      }
+    }
+  
+  Sample.list <- group[(group$cluster == start.no)|(group$cluster == z),]$samples
+  L_bk_noB <- Data[,colnames(Data) %in% Sample.list]
+  
+  condition <- factor(group$cluster_DEGs[!is.na(group$cluster_DEGs)], 
+                     levels = unique(group$cluster_DEGs))
+
+  colData <- data.frame(row.names = colnames(L_bk_noB), condition)
+
+  design <- model.matrix(~0+factor(colData$condition))
+  colnames(design)=levels(factor(colData$condition))
+  rownames(design)=colnames(L_bk_noB)
+  
+  ## Analysis
+  DGElist <- DGEList(counts = L_bk_noB, group = condition)
+
+  ##将count值转化成log2-counts per million (logCPM)，准备进行线性回归
+  DGElist <- calcNormFactors( DGElist )
+
+  v <- voom(DGElist, design, plot = TRUE, normalize = "quantile")
+  contrast.matrix<-makeContrasts("target-rest",levels=design)
+  ##step1:对每一个基因进行线性模型构建
+  fit <- lmFit(v,design)
+  ##step2:构建芯片数据的线性模型，计算估计的相关系数和标准差;基于贝叶斯计算T值，F值和log-odds
+  fit2 <- contrasts.fit(fit, contrast.matrix)
+  fit2 <- eBayes(fit2)  
+  ##step3
+  tempOutput = topTable(fit2, coef=1, n=Inf)
+  nrDEG = na.omit(tempOutput)
+  
+  nrDEG$SYMBOL = rownames(nrDEG)
+
+  C_DEGs <-  nrDEG[(nrDEG$P.Value < 0.05),]
+  C_DEGs <- C_DEGs[order(C_DEGs$logFC,decreasing = T),]
+  
+  outpath <- "/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/DEGs/One/C"
+  openxlsx::write.xlsx(C_DEGs,
+                       paste(outpath,start.no,"_vs_C",z,".xlsx",sep = ""),
+                     overwrite = F)
+  }
+}
+```
+
+## 3.1 Find specific (limma)
+```{r}
+C1.C2 <- read_xlsx("/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/DEGs/One/C1_vs_C2.xlsx")
+C1.C3 <- read_xlsx("/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/DEGs/One/C1_vs_C3.xlsx")
+C1.C4 <- read_xlsx("/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/DEGs/One/C1_vs_C4.xlsx")
+
+C2.C3 <- read_xlsx("/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/DEGs/One/C2_vs_C3.xlsx")
+C2.C4 <- read_xlsx("/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/DEGs/One/C2_vs_C4.xlsx")
+
+C3.C4 <- read_xlsx("/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/DEGs/One/C3_vs_C4.xlsx")
+
+```
+
+### 3.1.1 All up
+```{r}
+## 1
+C1 = intersect(C1.C2[C1.C2$logFC> 1,]$SYMBOL,
+               C1.C3[C1.C3$logFC> 1,]$SYMBOL)
+C1 = intersect(C1,
+               C1.C4[C1.C4$logFC> 1,]$SYMBOL)
+
+C2 = intersect(C1.C2[C1.C2$logFC< -1,]$SYMBOL,
+               C2.C3[C2.C3$logFC> 1,]$SYMBOL)
+C2 = intersect(C2,
+               C2.C4[C2.C4$logFC> 1,]$SYMBOL)
+
+C3 = intersect(C1.C3[C1.C3$logFC< -1,]$SYMBOL,
+               C2.C3[C2.C3$logFC< -1,]$SYMBOL)
+C3 = intersect(C3,
+               C3.C4[C3.C4$logFC> 1,]$SYMBOL)
+
+C4 = intersect(C1.C4[C1.C4$logFC< -1,]$SYMBOL,
+               C2.C4[C2.C4$logFC< -1,]$SYMBOL)
+C4 = intersect(C4,
+               C3.C4[C3.C4$logFC< -1,]$SYMBOL)
+```
+
+```{r} 
+## 0.5
+C1 = intersect(C1.C2[C1.C2$logFC> 0.5,]$SYMBOL,
+               C1.C3[C1.C3$logFC> 0.5,]$SYMBOL)
+C1 = intersect(C1,
+               C1.C4[C1.C4$logFC> 0.5,]$SYMBOL)
+
+C2 = intersect(C1.C2[C1.C2$logFC< -0.5,]$SYMBOL,
+               C2.C3[C2.C3$logFC> 0.5,]$SYMBOL)
+C2 = intersect(C2,
+               C2.C4[C2.C4$logFC> 0.5,]$SYMBOL)
+
+C3 = intersect(C1.C3[C1.C3$logFC< -0.5,]$SYMBOL,
+               C2.C3[C2.C3$logFC< -0.5,]$SYMBOL)
+C3 = intersect(C3,
+               C3.C4[C3.C4$logFC> 0.5,]$SYMBOL)
+
+C4 = intersect(C1.C4[C1.C4$logFC< -0.5,]$SYMBOL,
+               C2.C4[C2.C4$logFC< -0.5,]$SYMBOL)
+C4 = intersect(C4,
+               C3.C4[C3.C4$logFC< -0.5,]$SYMBOL)
+```
+
+```{r}
+C1 <- c(C1,rep(NA,length(C4)-length(C1)))
+C2 <- c(C2,rep(NA,length(C4)-length(C2)))
+C3 <- c(C3,rep(NA,length(C4)-length(C3)))
+Data <- data.frame(C1=C1,C2=C2,C3=C3,C4=C4)
+write.xlsx(Data,
+           "/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/DEGs/One/up_logFC1.xlsx",
+           overwrite = F)
+```
+
+### 3.1.2 up & down
+```{r}
+C1 = intersect(C1.C2[abs(C1.C2$logFC)> 1,]$SYMBOL,
+               C1.C3[abs(C1.C3$logFC)> 1,]$SYMBOL)
+C1 = intersect(C1,
+               C1.C4[abs(C1.C4$logFC)> 1,]$SYMBOL)
+
+C2 = intersect(C1.C2[abs(C1.C2$logFC)> 1,]$SYMBOL,
+               C2.C3[abs(C2.C3$logFC)> 1,]$SYMBOL)
+C2 = intersect(C2,
+               C2.C4[abs(C2.C4$logFC)> 1,]$SYMBOL)
+
+C3 = intersect(C1.C3[abs(C1.C3$logFC)> 1,]$SYMBOL,
+               C2.C3[abs(C2.C3$logFC)> 1,]$SYMBOL)
+C3 = intersect(C3,
+               C3.C4[abs(C3.C4$logFC)> 1,]$SYMBOL)
+
+C4 = intersect(C1.C4[abs(C1.C4$logFC)> 1,]$SYMBOL,
+               C2.C4[abs(C2.C4$logFC)> 1,]$SYMBOL)
+C4 = intersect(C4,
+               C3.C4[abs(C3.C4$logFC)> 1,]$SYMBOL)
+```
+
+### 3.1.3 GO
+```{r}
+# DEGs <- read_xlsx("/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/DEGs/One/up_logFC0.5.xlsx")
+diff <- data.frame(SYMBOL=DEGs$C4)
+  gene.df <- bitr(diff$SYMBOL,fromType="SYMBOL",toType="ENTREZID",
+                OrgDb = org.Hs.eg.db)
+    #TCGA数据框如果没有进行基因注释，那么fromType应该是Ensembl，各种ID之间可以互相转换,toType可以是一个字符串，也可以是一个向  量，看自己需求                     
+  gene <- gene.df$ENTREZID
+
+  ego_BP <- enrichGO(gene = gene,
+                   OrgDb=org.Hs.eg.db, #Human
+                   keyType = "ENTREZID",
+                   ont = "BP",
+                   pAdjustMethod = "BH",
+                   minGSSize = 1,
+                   pvalueCutoff = 0.01,
+                   qvalueCutoff = 0.05,
+                   readable = TRUE)
+  
+  ego_BP@result = ego_BP@result[ego_BP@result[["pvalue"]]<0.05,]
+  ego_BP@result = ego_BP@result[ego_BP@result[["Count"]]>5,]
+  # #4、将结果保存到当前路径
+  # ego_ALL <- as.data.frame(ego_ALL)
+  go_enrich_df <- as.data.frame(ego_BP@result)
+  go_enrich_df <- go_enrich_df[order(go_enrich_df$p.adjust,decreasing = FALSE),] #排序
+  rownames(go_enrich_df) <- 1:nrow(go_enrich_df)
+  
+  outpath <- "/linp/linp/IDD_classification/Formal Analysis/4 Enrichment/122Lumbar/New_5_CV8000/GO/Limma_specific/"
+  outpath <- paste(outpath,"logFC0.5_GOup_",sep = "")
+  
+  openxlsx::write.xlsx(go_enrich_df,
+                     file=paste(outpath,"C4.xlsx",sep = ""),
+                     overwrite = F)
+```
